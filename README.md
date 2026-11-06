@@ -11,11 +11,17 @@ Ported from upstream commit [`e4ad586`](https://github.com/anomalyco/opentui/tre
 
 ## Try it
 
-```bash
-go run ./examples/hello
-```
+Each example focuses on one part of the library:
 
-Scroll the document with the wheel or arrow keys, drag across text to select it, and resize the window to watch the tree reflow. Press Ctrl+C to quit; the terminal is restored.
+| Example | Shows |
+|---|---|
+| `go run ./examples/hello` | The smallest program: a bordered box of text |
+| `go run ./examples/layout` | Flex layout, boxes, borders, clipping, live updates from a goroutine, resize |
+| `go run ./examples/input` | Text inputs, Tab / Shift+Tab focus, bracketed paste, submit |
+| `go run ./examples/document` | `ScrollBox` (wheel, keys, draggable scrollbar), selection with auto-scroll, clipboard copy |
+| `go run ./examples/mouse` | Hover, clicks with bubbling, drag-and-drop between zones |
+
+Press Ctrl+C to quit; the terminal is restored.
 
 ## Use it
 
@@ -55,7 +61,7 @@ go test -race ./...                         # library unit tests
 scripts/release-check.sh [ref]              # everything, on a clean checkout of ref
 ```
 
-`tools/ptycheck` is a separate module, so the library keeps no test-only dependencies. It drives `examples/hello` through a pseudo-terminal and checks an emulated screen: wheel scrolling, drag selection and its highlight, resize reflow, Ctrl+C exit, and terminal-mode cleanup. Run `scripts/release-check.sh` before tagging; it checks only what is committed.
+`tools/ptycheck` is a separate module, so the library keeps no test-only dependencies. It runs every example in a pseudo-terminal, drives it with real key, paste, and mouse sequences, and checks an emulated screen, including clean exit and terminal-mode cleanup. Run `scripts/release-check.sh` before tagging; it checks only what is committed.
 
 ## Roadmap
 
