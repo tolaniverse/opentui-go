@@ -1,7 +1,7 @@
 //go:build unix
 
-// hello is the v0.1.0 demo: styled text, a translucent overlay, a live
-// clock, and resize handling. Press Ctrl+C to quit.
+// hello is the v0.2.0 demo: a renderable tree, Yoga-compatible flex layout,
+// boxes, borders, titles, clipping, live updates, and resize handling.
 //
 //	go run ./examples/hello
 package main
@@ -16,55 +16,62 @@ import (
 )
 
 func main() {
-	r, err := tui.New(tui.Options{
-		Background: tui.MustHex("#1e1e2e"),
-		Title:      "opentui-go hello",
-	})
+	bg := tui.MustHex("#1e1e2e")
+	panel := tui.MustHex("#181825")
+	accent := tui.MustHex("#89b4fa")
+	green := tui.MustHex("#a6e3a1")
+	muted := tui.MustHex("#7f849c")
+
+	r, err := tui.New(tui.Options{Background: bg, Title: "opentui-go v0.2.0"})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "hello:", err)
 		os.Exit(1)
 	}
 
-	// Redraw once a second so the clock ticks. RequestRender is safe to
-	// call from another goroutine.
+	clock := tui.Text("", tui.TextOptions{FG: muted})
+	header := tui.Box(tui.BoxOptions{
+		Border: tui.BorderAll, BorderStyle: tui.BorderRounded, BorderColor: accent,
+		Title: " opentui-go ", TitleColor: accent,
+		Style: tui.Style{Height: tui.Cells(3), Padding: tui.XY(1, 0)},
+	}, tui.Text("Pure Go · renderable trees · Yoga-compatible layout", tui.TextOptions{FG: tui.White}))
+
+	nav := tui.Box(tui.BoxOptions{
+		Border: tui.BorderAll, BorderColor: muted, Background: panel,
+		Title: " Components ", TitleColor: green,
+		Style: tui.Style{Width: tui.Pct(30), MinWidth: tui.Cells(20), Padding: tui.All(1), Overflow: tui.Hidden},
+	}, tui.Text("● Node tree\n● Flex layout\n● Box + borders\n● Text leaves\n● Clip stack", tui.TextOptions{FG: green}))
+
+	content := tui.Box(tui.BoxOptions{
+		Border: tui.BorderAll, BorderColor: accent, Background: panel,
+		Title: " Live layout ", TitleColor: accent,
+		Style: tui.Style{FlexGrow: 1, Padding: tui.All(1), Overflow: tui.Hidden},
+	}, tui.Text("Resize this terminal.\n\nThe panels recompute from the same tree;\nonly changed cells are written.", tui.TextOptions{FG: tui.White}))
+
+	body := tui.NewNode(tui.Style{Direction: tui.Row, FlexGrow: 1, Gap: 1}, nav, content)
+	footer := tui.NewNode(tui.Style{Height: tui.Cells(1), Direction: tui.Row, Justify: tui.JustifySpaceBetween},
+		tui.Text("Ctrl+C to quit", tui.TextOptions{FG: muted, Attr: tui.AttrDim}), clock)
+	r.Root().Style = tui.Style{Gap: 1}
+	r.Root().Add(header, body, footer)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() {
-		t := time.NewTicker(time.Second)
-		defer t.Stop()
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-t.C:
-				r.RequestRender()
+			case now := <-ticker.C:
+				if !r.Update(func() { clock.SetText(now.Format("15:04:05")) }) {
+					return
+				}
 			}
 		}
 	}()
 
-	accent := tui.MustHex("#89b4fa")
-	muted := tui.MustHex("#7f849c")
-
-	err = r.Run(ctx, func(b *tui.Buffer) {
-		w, h := b.Width(), b.Height()
-
-		b.DrawText("Hello, OpenTUI-Go!", 2, 1, accent, tui.Transparent, tui.AttrBold)
-		b.DrawText("bold", 2, 3, tui.White, tui.Transparent, tui.AttrBold)
-		b.DrawText("italic", 8, 3, tui.White, tui.Transparent, tui.AttrItalic)
-		b.DrawText("underline", 16, 3, tui.White, tui.Transparent, tui.AttrUnderline)
-		b.DrawText("strike", 27, 3, tui.White, tui.Transparent, tui.AttrStrikethrough)
-		b.DrawText("palette 196", 2, 4, tui.Indexed(196), tui.Transparent, tui.AttrNone)
-
-		// A translucent panel over text: the text stays visible but dimmed.
-		b.DrawText("text under a 50% black overlay", 2, 6, tui.White, tui.Transparent, tui.AttrNone)
-		b.FillRect(2, 6, 14, 1, tui.RGBAOf(0, 0, 0, 128))
-
-		b.DrawText(fmt.Sprintf("size %dx%d  ·  %s", w, h, time.Now().Format("15:04:05")),
-			2, 8, muted, tui.Transparent, tui.AttrNone)
-		// Pin the hint to the bottom, but never above the content (row 10).
-		b.DrawText("resize the window · Ctrl+C to quit", 2, max(h-2, 10), muted, tui.Transparent, tui.AttrDim)
-	})
-	if err != nil {
+	clock.SetText(time.Now().Format("15:04:05"))
+	if err := r.Run(ctx, nil); err != nil {
 		fmt.Fprintln(os.Stderr, "hello:", err)
 		os.Exit(1)
 	}

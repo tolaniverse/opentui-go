@@ -50,6 +50,10 @@ type Buffer struct {
 	// backdrop is blended under transparent cells, like upstream
 	// blendBackdropColor (the renderer sets it to its background color).
 	backdrop *RGBA
+	// clips is a stack of clip rectangles ("scissor stack" upstream).
+	// Writes outside the top rect are dropped. Each pushed rect is
+	// intersected with the one below, so clips only ever get smaller.
+	clips []Rect
 }
 
 // NewBuffer allocates a buffer filled with spaces on a transparent background.
@@ -66,6 +70,7 @@ func (b *Buffer) Height() int { return b.height }
 func (b *Buffer) Resize(width, height int) {
 	width, height = max(width, 0), max(height, 0)
 	b.width, b.height = width, height
+	b.clips = b.clips[:0]
 	if n := width * height; cap(b.cells) >= n {
 		b.cells = b.cells[:n]
 	} else {
@@ -88,12 +93,37 @@ func (b *Buffer) fill(ch rune, bg RGBA) {
 }
 
 func (b *Buffer) inBounds(x, y int) bool {
+	if n := len(b.clips); n > 0 {
+		return b.clips[n-1].Contains(x, y)
+	}
 	return x >= 0 && y >= 0 && x < b.width && y < b.height
+}
+
+// PushClip restricts drawing to r (intersected with the current clip).
+// Every PushClip needs a matching PopClip.
+// Port of pushScissorRect in upstream buffer.zig.
+func (b *Buffer) PushClip(r Rect) {
+	b.clips = append(b.clips, r.Intersect(b.Clip()))
+}
+
+// PopClip undoes the last PushClip.
+func (b *Buffer) PopClip() {
+	if len(b.clips) > 0 {
+		b.clips = b.clips[:len(b.clips)-1]
+	}
+}
+
+// Clip returns the area drawing is currently allowed in.
+func (b *Buffer) Clip() Rect {
+	if n := len(b.clips); n > 0 {
+		return b.clips[n-1]
+	}
+	return Rect{W: b.width, H: b.height}
 }
 
 // Get returns the cell at (x, y). ok is false when out of bounds.
 func (b *Buffer) Get(x, y int) (c Cell, ok bool) {
-	if !b.inBounds(x, y) {
+	if x < 0 || y < 0 || x >= b.width || y >= b.height {
 		return Cell{}, false
 	}
 	return b.cells[y*b.width+x], true
@@ -144,11 +174,12 @@ func (b *Buffer) blendCells(over, dest Cell) Cell {
 // DrawText writes text starting at (x, y), one rune per cell, clipped to the
 // buffer. It does not wrap. Translucent colors blend with what is underneath.
 func (b *Buffer) DrawText(text string, x, y int, fg, bg RGBA, attr Attr) {
-	if y < 0 || y >= b.height {
+	clip := b.Clip()
+	if y < clip.Y || y >= clip.Y+clip.H {
 		return
 	}
 	for _, r := range text {
-		if x >= b.width {
+		if x >= clip.X+clip.W {
 			return
 		}
 		if r < 0x20 || r == 0x7f { // control characters would corrupt the screen
@@ -162,8 +193,8 @@ func (b *Buffer) DrawText(text string, x, y int, fg, bg RGBA, attr Attr) {
 // FillRect paints the background of a rectangle, clipped to the buffer.
 // An opaque bg erases what was there; a translucent bg tints it.
 func (b *Buffer) FillRect(x, y, w, h int, bg RGBA) {
-	x0, y0 := max(x, 0), max(y, 0)
-	x1, y1 := min(x+w, b.width), min(y+h, b.height)
+	area := Rect{X: x, Y: y, W: w, H: h}.Intersect(b.Clip())
+	x0, y0, x1, y1 := area.X, area.Y, area.X+area.W, area.Y+area.H
 	for yy := y0; yy < y1; yy++ {
 		for xx := x0; xx < x1; xx++ {
 			b.SetBlended(xx, yy, Cell{Char: ' ', FG: White, BG: bg})

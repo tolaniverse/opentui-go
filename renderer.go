@@ -56,7 +56,11 @@ type Renderer struct {
 	current *Buffer // what the terminal shows right now
 	next    *Buffer // what the app is drawing for the next frame
 
+	root *Node // the UI tree, painted before the draw callback
+
 	renderReq chan struct{}
+	updates   chan func()
+	done      chan struct{} // closed when Run returns
 	closeOnce sync.Once
 	closeErr  error
 }
@@ -66,7 +70,14 @@ var ErrNotTerminal = errors.New("opentui: output is not a terminal")
 
 // New takes over the terminal. Always call Close (Run does it for you).
 func New(opts Options) (*Renderer, error) {
-	r := &Renderer{opts: opts, in: opts.In, out: opts.Out, renderReq: make(chan struct{}, 1)}
+	r := &Renderer{
+		opts: opts, in: opts.In, out: opts.Out,
+		root:      NewNode(Style{}),
+		renderReq: make(chan struct{}, 1),
+		updates:   make(chan func(), 64),
+		done:      make(chan struct{}),
+	}
+	r.root.ID = "root"
 	if r.in == nil {
 		r.in = os.Stdin
 	}
@@ -122,6 +133,31 @@ func (r *Renderer) resetBuffers() {
 // Size returns the terminal size in cells.
 func (r *Renderer) Size() (width, height int) { return r.next.Width(), r.next.Height() }
 
+// Root is the top of the UI tree. Each frame it is sized to the terminal,
+// laid out and painted, before the draw callback runs.
+// Change the tree only on the Run goroutine (see Update).
+func (r *Renderer) Root() *Node { return r.root }
+
+// Update runs fn on the Run goroutine, then draws a frame. Use it to change
+// the tree from other goroutines (timers, network, …). It returns false if
+// Run has already finished, in which case fn is not run.
+func (r *Renderer) Update(fn func()) bool {
+	// Prefer the completed state when Update starts after Run has returned.
+	// Without this fast path, both cases below can be ready and select may
+	// enqueue work that no goroutine will ever apply.
+	select {
+	case <-r.done:
+		return false
+	default:
+	}
+	select {
+	case r.updates <- fn:
+		return true
+	case <-r.done:
+		return false
+	}
+}
+
 // Buffer is the frame being drawn. Draw into it, then call Render.
 func (r *Renderer) Buffer() *Buffer { return r.next }
 
@@ -173,7 +209,8 @@ func (r *Renderer) Close() error {
 
 // Run draws frames until ctx is cancelled, Ctrl+C is pressed (unless
 // IgnoreCtrlC), or the process gets SIGINT/SIGTERM/SIGHUP. draw is called
-// for every frame with an empty buffer; it runs on Run's goroutine.
+// for every frame after the Root tree is painted (draw may be nil); it runs
+// on Run's goroutine.
 //
 // Frames are drawn at start, on resize, and on RequestRender.
 // Run always calls Close, even if draw panics.
@@ -198,8 +235,13 @@ func (r *Renderer) Run(ctx context.Context, draw func(b *Buffer)) (err error) {
 	go r.readInput(ctx, ctrlC, readerDone)
 	defer func() { cancel(); <-readerDone }() // wait so no read outlives Run
 
+	defer close(r.done)
+
 	frame := func() error {
-		draw(r.next)
+		Draw(r.root, r.next)
+		if draw != nil {
+			draw(r.next)
+		}
 		return r.Render()
 	}
 	if err := frame(); err != nil {
@@ -225,6 +267,20 @@ func (r *Renderer) Run(ctx context.Context, draw func(b *Buffer)) (err error) {
 				return err
 			}
 		case <-r.renderReq:
+			if err := frame(); err != nil {
+				return err
+			}
+		case fn := <-r.updates:
+			fn()
+			// Apply everything already queued before drawing once.
+			for drained := false; !drained; {
+				select {
+				case fn := <-r.updates:
+					fn()
+				default:
+					drained = true
+				}
+			}
 			if err := frame(); err != nil {
 				return err
 			}

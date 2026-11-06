@@ -1,0 +1,8 @@
+{
+  "name": "opentui-go-yoga-oracle",
+  "private": true,
+  "type": "module",
+  "description": "Generates testdata/yoga_cases.json from real Yoga, the layout engine upstream OpenTUI uses.",
+  "scripts": { "gen": "node gen.mjs" },
+  "devDependencies": { "yoga-layout": "3.2.1" }
+}
