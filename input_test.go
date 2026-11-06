@@ -175,7 +175,7 @@ func TestInputEditingAndCallbacks(t *testing.T) {
 	if got := n.Value(); got != "ca" {
 		t.Fatalf("delete: %q", got)
 	}
-	n.InsertText("fé\nZZ") // newline stripped; MaxLength truncates by runes
+	n.InsertText("fé\nZZ") // newline stripped; MaxLength truncates by clusters
 	if got := n.Value(); got != "caféZ" {
 		t.Fatalf("paste/max: %q", got)
 	}

@@ -4,7 +4,7 @@ A pure-Go port of [OpenTUI](https://github.com/anomalyco/opentui), a library for
 
 Upstream OpenTUI pairs a Zig engine with a TypeScript API. This port reimplements both layers in Go, with no cgo and no Zig.
 
-> **Status: v0.6.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering, diff rendering, resize handling, and clean shutdown.
+> **Status: v0.7.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering, diff rendering, resize handling, and clean shutdown.
 > Unix only (macOS, Linux, BSD).
 
 Ported from upstream commit [`e4ad586`](https://github.com/anomalyco/opentui/tree/e4ad5867eae1051a2c1877b08d88bbcaf12b7209).
@@ -47,6 +47,7 @@ err = r.Run(context.Background(), nil)
 - `Renderer.SetKeyHandler` receives keys before the focused node. `PreventDefault` suppresses built-in Tab and Ctrl+C behavior; `StopPropagation` stops focused-node delivery.
 - `Renderer.Focus`, `Blur`, `Focused`, and `FocusNext` manage focus. Tab and Shift+Tab traverse visible focusable nodes in depth-first order and wrap.
 - `Input` supports cursor movement, Home/End, Backspace/Delete, Ctrl+A/E/U/K/W, bracketed paste, horizontal scrolling, placeholders, length limits, and input/change/submit callbacks.
+- `Input` moves and deletes whole grapheme clusters, scrolls in terminal cells, and enforces MinLength/MaxLength in clusters. `Cursor`/`SetCursor` retain rune offsets for API compatibility; `SetCursor` snaps to the prior grapheme boundary.
 
 ## Mouse, scrolling, and selection
 
@@ -54,7 +55,7 @@ err = r.Run(context.Background(), nil)
 - `ScrollBox` clips content, handles wheel and arrow navigation, supports programmatic offsets and sticky-end follow, and paints overlay scrollbars. Drag a scrollbar thumb to scroll, or click the track to page. Box padding is applied to the scrolled content, as upstream.
 - Dragging selectable `Text` creates a renderer-owned selection. Double-click selects a word and triple-click selects a line. Dragging past a `ScrollBox` edge auto-scrolls it, faster the further out the pointer is.
 - `Renderer.CopyToClipboard` sends text to the terminal's clipboard with OSC 52, so it works over SSH. Terminals may disable or size-limit OSC 52 and never confirm it.
-- `Text` measures, paints, clips, and selects Unicode grapheme clusters by terminal-cell width (including CJK and emoji sequences); plain ASCII keeps a fast path. `Input` editing remains rune-based.
+- `Text` measures, paints, clips, and selects Unicode grapheme clusters by terminal-cell width (including CJK and emoji sequences); plain ASCII keeps a fast path.
 
 ## Testing
 
@@ -78,14 +79,15 @@ scripts/release-check.sh [ref]              # everything, on a clean checkout of
 | **v0.4.0** | Scrolling, selection, mouse |
 | **v0.5.0** | Focused examples, scrollbar dragging, selection auto-scroll, clipboard copy, compatibility notes, performance pass |
 | **v0.6.0** | Grapheme-aware `Text` measurement, painting, clipping, selection, and frame diff; Unicode example |
+| **v0.7.0** | Grapheme-aware `Input` navigation, editing, limits, and horizontal scrolling |
 
 ## Layout
 
 `Style` supports row/column directions (including reverse), grow and shrink, basis, fixed and percentage dimensions, min/max constraints, gap, padding, margins, justify/align, and absolute positioning. Layout is a pure-Go port of the supported Yoga 3.2.1 algorithm and is checked against 410 generated real-Yoga cases. It also carries OpenTUI's flex-shrink residue fix.
 
-## Known limitations (v0.6.0)
+## Known limitations (v0.7.0)
 
-- Single-line `Input` cursor/edit operations remain rune-based and may split grapheme clusters. Terminal width calculations use `uniseg` defaults and may differ from a particular terminal's emoji width settings.
+- `Input` is still single-line and its public cursor offsets are rune indices; editing itself uses grapheme boundaries. Terminal width calculations use `uniseg` defaults and may differ from a particular terminal's emoji width settings.
 - Truecolor is assumed; there is no terminal capability detection yet.
 - No hyperlinks, images or cursor control.
 - Clipboard copy is write-only OSC 52; there is no clipboard read and no tmux/screen passthrough wrapping yet.

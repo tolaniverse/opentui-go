@@ -4,6 +4,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/rivo/uniseg"
 )
 
 // InputOptions configures a single-line editable text node.
@@ -14,8 +16,8 @@ type InputOptions struct {
 
 	Value       string
 	Placeholder string
-	MinLength   int
-	MaxLength   int // zero uses 1000
+	MinLength   int // grapheme clusters
+	MaxLength   int // grapheme clusters; zero uses 1000
 
 	FG, BG               RGBA
 	FocusedFG, FocusedBG RGBA
@@ -70,7 +72,7 @@ func Input(o InputOptions) *Node {
 	n.input.cursor = len(n.input.value)
 
 	n.measure = func(w float64, wm MeasureMode, h float64, hm MeasureMode) (float64, float64) {
-		content := max(len(n.input.value), utf8.RuneCountInString(n.input.placeholder))
+		content := max(displayWidth(n.Value()), displayWidth(n.input.placeholder))
 		return fit(float64(content), w, wm), fit(1, h, hm)
 	}
 	n.paint = paintInput
@@ -93,7 +95,8 @@ func (n *Node) Value() string {
 	return string(n.input.value)
 }
 
-// SetValue replaces an Input node's text, strips newlines, enforces MaxLength,
+// SetValue replaces an Input node's text, strips newlines, enforces MaxLength
+// in whole grapheme clusters,
 // moves the cursor to the end, and invokes OnInput when the value changes.
 func (n *Node) SetValue(value string) { n.setInputValue(value, true) }
 
@@ -102,10 +105,7 @@ func (n *Node) setInputValue(value string, notify bool) {
 		return
 	}
 	value = strings.NewReplacer("\r", "", "\n", "").Replace(value)
-	runes := []rune(value)
-	if len(runes) > n.input.maxLength {
-		runes = runes[:n.input.maxLength]
-	}
+	runes := []rune(truncateClusters(value, n.input.maxLength))
 	if string(runes) == string(n.input.value) {
 		return
 	}
@@ -116,7 +116,8 @@ func (n *Node) setInputValue(value string, notify bool) {
 	}
 }
 
-// Cursor returns an Input node's cursor offset in runes.
+// Cursor returns an Input node's cursor offset in runes, always at a grapheme
+// boundary. Rune offsets are retained for API compatibility with v0.3–0.6.
 func (n *Node) Cursor() int {
 	if n.input == nil {
 		return 0
@@ -127,7 +128,7 @@ func (n *Node) Cursor() int {
 // SetCursor moves an Input cursor, clamped to [0, len(value)].
 func (n *Node) SetCursor(offset int) {
 	if n.input != nil {
-		n.input.cursor = min(max(offset, 0), len(n.input.value))
+		n.input.cursor = inputFloor(n.input.value, offset)
 	}
 }
 
@@ -138,28 +139,44 @@ func (n *Node) InsertText(text string) bool {
 		return false
 	}
 	text = strings.NewReplacer("\r", "", "\n", "").Replace(text)
-	insert := []rune(text)
-	remaining := n.input.maxLength - len(n.input.value)
-	if remaining <= 0 || len(insert) == 0 {
+	if text == "" {
 		return false
 	}
-	if len(insert) > remaining {
-		insert = insert[:remaining]
-	}
 	i := n.input.cursor
+	insert := []rune(text)
+	whole := make([]rune, 0, len(n.input.value)+len(insert))
+	whole = append(whole, n.input.value[:i]...)
+	whole = append(whole, insert...)
+	whole = append(whole, n.input.value[i:]...)
+	if len(inputOffsets(whole))-1 > n.input.maxLength {
+		// The whole paste does not fit. Fall back to prefix checks so an
+		// insertion that joins either neighboring cluster still counts right.
+		insert = insert[:0]
+		for g := uniseg.NewGraphemes(text); g.Next(); {
+			trial := append(append(append([]rune{}, n.input.value[:i]...), insert...), []rune(g.Str())...)
+			trial = append(trial, n.input.value[i:]...)
+			if len(inputOffsets(trial))-1 > n.input.maxLength {
+				break
+			}
+			insert = append(insert, []rune(g.Str())...)
+		}
+	}
+	if len(insert) == 0 {
+		return false
+	}
 	value := make([]rune, 0, len(n.input.value)+len(insert))
 	value = append(value, n.input.value[:i]...)
 	value = append(value, insert...)
 	value = append(value, n.input.value[i:]...)
 	n.input.value = value
-	n.input.cursor += len(insert)
+	n.input.cursor = inputCeil(value, i+len(insert))
 	n.notifyInput()
 	return true
 }
 
 // Submit invokes OnChange if needed and then OnSubmit when MinLength is met.
 func (n *Node) Submit() bool {
-	if n.input == nil || len(n.input.value) < n.input.minLength {
+	if n.input == nil || len(inputOffsets(n.input.value))-1 < n.input.minLength {
 		return false
 	}
 	n.commitInput()
@@ -216,11 +233,11 @@ func (n *Node) handleInputKey(key *KeyEvent) {
 		n.notifyInput()
 	case key.Ctrl && key.Name == "w":
 		start := s.cursor
-		for start > 0 && unicode.IsSpace(s.value[start-1]) {
-			start--
+		for start > 0 && unicode.IsSpace(s.value[inputPrev(s.value, start)]) {
+			start = inputPrev(s.value, start)
 		}
-		for start > 0 && !unicode.IsSpace(s.value[start-1]) {
-			start--
+		for start > 0 && !unicode.IsSpace(s.value[inputPrev(s.value, start)]) {
+			start = inputPrev(s.value, start)
 		}
 		if start == s.cursor {
 			handled = false
@@ -231,13 +248,13 @@ func (n *Node) handleInputKey(key *KeyEvent) {
 		n.notifyInput()
 	case key.Name == "left":
 		if s.cursor > 0 {
-			s.cursor--
+			s.cursor = inputPrev(s.value, s.cursor)
 		} else {
 			handled = false
 		}
 	case key.Name == "right":
 		if s.cursor < len(s.value) {
-			s.cursor++
+			s.cursor = inputNext(s.value, s.cursor)
 		} else {
 			handled = false
 		}
@@ -250,15 +267,16 @@ func (n *Node) handleInputKey(key *KeyEvent) {
 			handled = false
 			break
 		}
-		s.value = append(s.value[:s.cursor-1], s.value[s.cursor:]...)
-		s.cursor--
+		start := inputPrev(s.value, s.cursor)
+		s.value = append(s.value[:start], s.value[s.cursor:]...)
+		s.cursor = start
 		n.notifyInput()
 	case key.Name == "delete":
 		if s.cursor == len(s.value) {
 			handled = false
 			break
 		}
-		s.value = append(s.value[:s.cursor], s.value[s.cursor+1:]...)
+		s.value = append(s.value[:s.cursor], s.value[inputNext(s.value, s.cursor):]...)
 		n.notifyInput()
 	case key.Name == "return" || key.Name == "kpenter" || key.Name == "linefeed":
 		handled = n.Submit()
@@ -302,25 +320,116 @@ func paintInput(b *Buffer, n *Node) {
 		b.DrawText(s.placeholder, r.X, r.Y, s.opts.PlaceholderColor, bg, AttrDim)
 		return
 	}
+	// Segment once for this paint. Repeated width/slice calculations in the
+	// scrolling loop are quadratic for long Unicode values.
+	type part struct{ start, end, width int }
+	parts := make([]part, 0, len(s.value))
+	runePos := 0
+	for g := uniseg.NewGraphemes(string(s.value)); g.Next(); {
+		end := runePos + utf8.RuneCountInString(g.Str())
+		parts = append(parts, part{runePos, end, max(g.Width(), 1)})
+		runePos = end
+	}
+	startIndex, cursorIndex := 0, len(parts)
+	for i, p := range parts {
+		if p.start < s.viewStart {
+			startIndex = i + 1
+		}
+		if p.start == s.cursor {
+			cursorIndex = i
+		}
+	}
 	if s.cursor < s.viewStart {
-		s.viewStart = s.cursor
+		startIndex = cursorIndex
 	}
-	if s.cursor >= s.viewStart+r.W {
-		s.viewStart = s.cursor - r.W + 1
+	column := 0
+	for _, p := range parts[startIndex:cursorIndex] {
+		column += p.width
 	}
-	s.viewStart = min(s.viewStart, max(len(s.value)-r.W+1, 0))
-	end := min(s.viewStart+r.W, len(s.value))
+	glyphWidth := 1
+	if cursorIndex < len(parts) {
+		glyphWidth = parts[cursorIndex].width
+	}
+	for startIndex < cursorIndex && (column >= r.W || column+glyphWidth > r.W) {
+		column -= parts[startIndex].width
+		startIndex++
+	}
+	s.viewStart = len(s.value)
+	if startIndex < len(parts) {
+		s.viewStart = parts[startIndex].start
+	}
+	end, used := s.viewStart, 0
+	for _, p := range parts[startIndex:] {
+		if used+p.width > r.W {
+			break
+		}
+		used += p.width
+		end = p.end
+	}
 	if end > s.viewStart {
 		b.DrawText(string(s.value[s.viewStart:end]), r.X, r.Y, fg, bg, AttrNone)
 	}
 	if n.focused {
-		x := r.X + s.cursor - s.viewStart
+		x := r.X + column
 		if x >= r.X && x < r.X+r.W {
-			char := ' '
-			if s.cursor < len(s.value) {
-				char = s.value[s.cursor]
+			glyph := " "
+			if cursorIndex < len(parts) {
+				p := parts[cursorIndex]
+				glyph = string(s.value[p.start:p.end])
 			}
-			b.SetBlended(x, r.Y, Cell{Char: char, FG: fg, BG: bg, Attr: AttrInverse})
+			if glyphWidth <= r.X+r.W-x {
+				b.DrawText(glyph, x, r.Y, fg, bg, AttrInverse)
+			} else {
+				b.DrawText(" ", x, r.Y, fg, bg, AttrInverse)
+			}
 		}
 	}
+}
+
+// inputOffsets maps grapheme boundaries to rune offsets. Cursor's public
+// unit remains runes, while movement/deletion always use these boundaries.
+func inputOffsets(value []rune) []int {
+	offsets := []int{0}
+	pos := 0
+	for g := uniseg.NewGraphemes(string(value)); g.Next(); {
+		pos += utf8.RuneCountInString(g.Str())
+		offsets = append(offsets, pos)
+	}
+	return offsets
+}
+
+func inputFloor(value []rune, offset int) int {
+	result := 0
+	for _, boundary := range inputOffsets(value) {
+		if boundary > offset {
+			break
+		}
+		result = boundary
+	}
+	return result
+}
+
+func inputCeil(value []rune, offset int) int {
+	for _, boundary := range inputOffsets(value) {
+		if boundary >= offset {
+			return boundary
+		}
+	}
+	return len(value)
+}
+
+func inputPrev(value []rune, offset int) int { return inputFloor(value, offset-1) }
+func inputNext(value []rune, offset int) int { return inputCeil(value, offset+1) }
+
+func truncateClusters(value string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	g := uniseg.NewGraphemes(value)
+	count, end := 0, 0
+	for g.Next() && count < limit {
+		_, end = g.Positions()
+		count++
+	}
+	return value[:end]
 }

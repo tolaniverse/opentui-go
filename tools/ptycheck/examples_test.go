@@ -90,6 +90,19 @@ func TestInput(t *testing.T) {
 	s.exitCleanly()
 }
 
+func TestInputUnicodeEditing(t *testing.T) {
+	s := start(t, buildExample(t, "input"), 90, 24)
+	s.waitText("Name — Enter moves to email")
+	s.send("\x1b[200~A👩🏽‍💻B\x1b[201~")
+	s.send("\x1b[D") // before B
+	s.send("\x7f")   // remove the whole emoji cluster, not its final rune
+	s.send("\r")
+	s.waitText("Name saved — enter your email")
+	s.send("ada@example.com\r")
+	s.waitText("Submitted: AB <ada@example.com>")
+	s.exitCleanly()
+}
+
 func TestMouse(t *testing.T) {
 	s := start(t, buildExample(t, "mouse"), 90, 24)
 	s.waitText("Move, click, or drag the card")

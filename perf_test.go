@@ -3,6 +3,7 @@ package opentui
 import (
 	"bytes"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -46,6 +47,28 @@ func BenchmarkEncodeFrame(b *testing.B) {
 				encodeFrame(&out, current, next, FrameOptions{})
 			}
 		})
+	}
+}
+
+func BenchmarkInputPaintUnicode(b *testing.B) {
+	n := Input(InputOptions{Value: strings.Repeat("界e\u0301", 500), Style: Style{Width: Cells(40)}})
+	root := NewNode(Style{AlignItems: AlignStart}, n)
+	r := testRenderer(root)
+	r.Focus(n)
+	buf := NewBuffer(40, 1)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		Draw(root, buf)
+	}
+}
+
+func BenchmarkInputPasteUnicode(b *testing.B) {
+	text := strings.Repeat("界e\u0301", 500)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		n := Input(InputOptions{MaxLength: 1000})
+		n.InsertText(text)
 	}
 }
 
