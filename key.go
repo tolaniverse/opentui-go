@@ -63,9 +63,11 @@ func (e *PasteEvent) PropagationStopped() bool { return e.propagationStopped }
 type terminalEvent interface{ terminalEvent() }
 type keyInput struct{ event *KeyEvent }
 type pasteInput struct{ event *PasteEvent }
+type mouseInput struct{ event *MouseEvent }
 
 func (keyInput) terminalEvent()   {}
 func (pasteInput) terminalEvent() {}
+func (mouseInput) terminalEvent() {}
 
 const (
 	pasteStart = "\x1b[200~"
@@ -77,6 +79,7 @@ const (
 type keyDecoder struct {
 	buf   []byte
 	paste bool
+	mouse mouseDecoder
 }
 
 func (d *keyDecoder) Feed(data []byte) []terminalEvent {
@@ -114,6 +117,10 @@ func (d *keyDecoder) decode(flush bool) []terminalEvent {
 		}
 		raw := string(d.buf[:n])
 		d.buf = d.buf[n:]
+		if mouse := d.mouse.parse([]byte(raw)); mouse != nil {
+			out = append(out, mouseInput{mouse})
+			continue
+		}
 		if key := parseKey(raw); key != nil {
 			out = append(out, keyInput{key})
 		}

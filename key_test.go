@@ -153,11 +153,9 @@ func TestKeyDecoderKittySpecialEventTypes(t *testing.T) {
 	}
 }
 
-func TestKeyDecoderSuppressesMouseOSCAndIncompleteCSI(t *testing.T) {
+func TestKeyDecoderSuppressesOSCAndIncompleteCSI(t *testing.T) {
 	d := keyDecoder{}
 	inputs := [][]byte{
-		[]byte("\x1b[<0;10;20M"),
-		[]byte{'\x1b', '[', 'M', 32, 42, 52},
 		[]byte("\x1b]11;rgb:ffff/ffff/ffff\x07"),
 		[]byte("\x1b]52;c;ignored\x1b\\"),
 	}
