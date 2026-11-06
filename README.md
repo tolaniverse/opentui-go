@@ -43,8 +43,9 @@ err = r.Run(context.Background(), nil)
 ## Mouse, scrolling, and selection
 
 - Mouse reporting uses SGR mode plus motion mode by default. Events bubble from the deepest hit node and support hover, drag capture, drop, and left-click focus.
-- `ScrollBox` clips content, handles wheel and arrow navigation, supports programmatic offsets and sticky-end follow, and paints overlay scrollbars.
-- Dragging selectable `Text` creates a renderer-owned selection. Double-click selects a word and triple-click selects a line.
+- `ScrollBox` clips content, handles wheel and arrow navigation, supports programmatic offsets and sticky-end follow, and paints overlay scrollbars. Drag a scrollbar thumb to scroll, or click the track to page. Box padding is applied to the scrolled content, as upstream.
+- Dragging selectable `Text` creates a renderer-owned selection. Double-click selects a word and triple-click selects a line. Dragging past a `ScrollBox` edge auto-scrolls it, faster the further out the pointer is.
+- `Renderer.CopyToClipboard` sends text to the terminal's clipboard with OSC 52, so it works over SSH. Terminals may disable or size-limit OSC 52 and never confirm it.
 
 ## Testing
 
@@ -75,7 +76,7 @@ scripts/release-check.sh [ref]              # everything, on a clean checkout of
 - Each rune occupies one cell; wide characters (CJK, emoji) and grapheme clusters are not handled yet.
 - Truecolor is assumed; there is no terminal capability detection yet.
 - No hyperlinks, images or cursor control.
-- Mouse interaction does not yet include scrollbar dragging, selection auto-scroll, or terminal clipboard integration.
+- Clipboard copy is write-only OSC 52; there is no clipboard read and no tmux/screen passthrough wrapping yet.
 - Input remains single-line; multiline editing is not implemented yet.
 - No flex wrapping, align-content, baseline alignment, aspect ratio, percentage padding/margins, or auto margins yet.
 - `Text` does not wrap and supports plain text only; styled spans arrive in a later release.

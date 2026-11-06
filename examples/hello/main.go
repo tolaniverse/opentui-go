@@ -1,7 +1,8 @@
 //go:build unix
 
-// hello is the v0.4.0 demo: mouse routing, scrolling, text selection,
-// keyboard input, focus, and resize handling.
+// hello demonstrates mouse routing, scrolling (wheel, keys, and a draggable
+// scrollbar), text selection with auto-scroll and OSC 52 copy, focus, and
+// resize handling.
 //
 //	go run ./examples/hello
 package main
@@ -10,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	tui "github.com/tolaniverse/opentui-go"
 )
@@ -27,7 +29,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	status := tui.Text("Drag text to select · wheel or arrows scroll", tui.TextOptions{FG: green})
+	status := tui.Text("Drag text to select and copy · wheel, arrows or scrollbar scroll", tui.TextOptions{FG: green})
 	lines := make([]*tui.Node, 24)
 	for i := range lines {
 		lines[i] = tui.Text(fmt.Sprintf("Line %02d  Select and scroll this document.", i+1), tui.TextOptions{FG: tui.White})
@@ -38,7 +40,8 @@ func main() {
 			Title: " Document ", TitleColor: accent,
 			Style: tui.Style{FlexGrow: 1, Padding: tui.All(1)},
 		},
-		OnScroll: func(_, y int) { status.SetText(fmt.Sprintf("Scrolled to line %d", y+1)) },
+		// y counts the content's top padding row, so line N is at the top when y == N.
+		OnScroll: func(_, y int) { status.SetText(fmt.Sprintf("Scrolled to line %d", max(y, 1))) },
 	}, lines...)
 
 	header := tui.Box(tui.BoxOptions{
@@ -46,12 +49,21 @@ func main() {
 		Title: " opentui-go v0.4.0 ", TitleColor: accent,
 		Style: tui.Style{Height: tui.Cells(3), Padding: tui.XY(1, 0)},
 	}, tui.Text("Pure Go mouse input · scrolling · text selection", tui.TextOptions{FG: tui.White}))
-	footer := tui.Text("Click focus  •  wheel/arrows scroll  •  drag selects  •  Ctrl+C quit", tui.TextOptions{FG: muted, Attr: tui.AttrDim})
+	footer := tui.Text("Wheel/arrows/scrollbar scroll  •  drag selects + copies  •  Ctrl+C quit", tui.TextOptions{FG: muted, Attr: tui.AttrDim})
 
 	r.Root().Style = tui.Style{Gap: 1}
 	r.Root().Add(header, scroll, status, footer)
 	r.SetSelectionHandler(func(selection *tui.Selection) {
-		status.SetText("Selected: " + selection.Text())
+		text := selection.Text()
+		if text == "" {
+			return
+		}
+		lines := strings.Split(text, "\n")
+		verb := "Copied"
+		if err := r.CopyToClipboard(text, tui.ClipboardSystem); err != nil {
+			verb = "Selected"
+		}
+		status.SetText(fmt.Sprintf("%s %d line(s): %s", verb, len(lines), lines[0]))
 	})
 	r.Focus(scroll)
 

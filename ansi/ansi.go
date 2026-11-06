@@ -5,6 +5,7 @@
 package ansi
 
 import (
+	"encoding/base64"
 	"io"
 	"strconv"
 )
@@ -98,4 +99,15 @@ func SetTitle(w Writer, title string) {
 	w.WriteString("\x1b]0;")
 	w.WriteString(title)
 	w.WriteByte('\x07')
+}
+
+// Clipboard writes an OSC 52 request asking the terminal to place text on
+// a clipboard. target is 'c' (clipboard) or 'p' (primary selection). The
+// payload is base64 and the sequence ends with ST, as upstream terminal.zig.
+func Clipboard(w Writer, target byte, text string) {
+	w.WriteString("\x1b]52;")
+	w.WriteString(string(target))
+	w.WriteString(";")
+	w.WriteString(base64.StdEncoding.EncodeToString([]byte(text)))
+	w.WriteString("\x1b\\")
 }

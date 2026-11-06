@@ -136,3 +136,34 @@ func TestScrollBoxPaintsScrollbar(t *testing.T) {
 		t.Fatalf("track cell: %+v", cell)
 	}
 }
+
+func TestScrollBoxPaddingScrollsWithContent(t *testing.T) {
+	lines := scrollLines(6)
+	scroll := ScrollBox(ScrollBoxOptions{
+		BoxOptions: BoxOptions{
+			Border: BorderAll,
+			Style:  Style{Width: Cells(10), Height: Cells(6), Padding: All(1)},
+		},
+		HideScrollbars: true,
+	}, lines...)
+	root := NewNode(Style{}, scroll)
+	Draw(root, NewBuffer(10, 6))
+	if vp := scroll.ViewportRect(); vp != (Rect{X: 1, Y: 1, W: 8, H: 4}) {
+		t.Fatalf("viewport = %+v, want the area inside the border", vp)
+	}
+	if r := lines[0].Rect(); r.X != 2 || r.Y != 2 {
+		t.Fatalf("first line at %d,%d, want 2,2 (inside border and padding)", r.X, r.Y)
+	}
+	// 6 lines + 2 padding rows = 8 content rows in a 4-row viewport.
+	if _, h := scroll.ScrollSize(); h != 8 {
+		t.Fatalf("content height = %d, want 8", h)
+	}
+	scroll.ScrollTo(0, 99)
+	Draw(root, NewBuffer(10, 6))
+	if _, y := scroll.ScrollOffset(); y != 4 {
+		t.Fatalf("max offset = %d, want 4", y)
+	}
+	if r := lines[5].Rect(); r.Y != 3 {
+		t.Fatalf("last line at row %d, want 3 (bottom padding row 4 visible)", r.Y)
+	}
+}

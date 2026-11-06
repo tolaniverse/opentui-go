@@ -3,11 +3,14 @@
 package ptycheck
 
 import (
+	"bytes"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,6 +24,15 @@ type session struct {
 	tty    *os.File
 	screen *Screen
 	done   chan error
+
+	rawMu sync.Mutex
+	raw   bytes.Buffer // everything the program wrote, for non-screen output
+}
+
+func (s *session) rawContains(sub string) bool {
+	s.rawMu.Lock()
+	defer s.rawMu.Unlock()
+	return bytes.Contains(s.raw.Bytes(), []byte(sub))
 }
 
 // buildExample compiles ./examples/<name> from the repository root.
@@ -49,6 +61,9 @@ func start(t *testing.T, bin string, w, h int) *session {
 			n, err := tty.Read(buf)
 			if n > 0 {
 				s.screen.Write(buf[:n])
+				s.rawMu.Lock()
+				s.raw.Write(buf[:n])
+				s.rawMu.Unlock()
 			}
 			if err != nil {
 				return
@@ -121,7 +136,9 @@ func TestHelloEndToEnd(t *testing.T) {
 	s.send(sgrMouse(0, x, y, true))
 	s.send(sgrMouse(32, x+5, y, true))
 	s.send(sgrMouse(0, x+5, y, false))
-	s.waitText("Selected: Line 0")
+	s.waitText("Copied 1 line(s): Line 0")
+	osc52 := "\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte("Line 0")) + "\x1b\\"
+	s.waitFor("OSC 52 copy of the selection", func() bool { return s.rawContains(osc52) })
 	highlight := [3]uint8{137, 180, 250}
 	for i := 0; i < 6; i++ {
 		if c := s.screen.Cell(x+i, y); !c.BGSet || c.BG != highlight {
@@ -130,6 +147,53 @@ func TestHelloEndToEnd(t *testing.T) {
 	}
 	if c := s.screen.Cell(x+6, y); c.BG == highlight {
 		t.Fatalf("cell past selection highlighted: %+v", c)
+	}
+
+	// Scrollbar: the bar is the viewport's last column, just inside the
+	// right border (ScrollBox padding belongs to the scrolled content).
+	row := []rune(s.screen.Lines()[y])
+	barX := len(row) - 2
+	thumbRow := func() int {
+		for r := y; r < y+30; r++ {
+			if c := s.screen.Cell(barX, r); c.BGSet && c.BG == highlight {
+				return r
+			}
+		}
+		return -1
+	}
+	s.waitFor("scrollbar thumb", func() bool { return thumbRow() >= 0 })
+	bottom := y
+	for s.screen.Cell(barX, bottom+1).BGSet && strings.HasPrefix(s.screen.Lines()[bottom+1], "│") {
+		bottom++
+	}
+	s.send(sgrMouse(0, barX, thumbRow(), true))
+	s.send(sgrMouse(32, barX, bottom, true))
+	s.send(sgrMouse(0, barX, bottom, false))
+	s.waitText("Line 24")
+	trackTop := y - 1 // the content's top padding row sits above Line 01
+	s.send(sgrMouse(0, barX, thumbRow(), true))
+	s.send(sgrMouse(32, barX, trackTop, true))
+	s.send(sgrMouse(0, barX, trackTop, false))
+	s.waitFor("thumb dragged back to top", func() bool {
+		_, top, ok := s.screen.Find("Line 01")
+		return ok && top == y
+	})
+
+	// Auto-scroll: hold a selection drag below the document; the box keeps
+	// scrolling until the end, and releasing copies every line.
+	s.send(sgrMouse(0, x, y, true))
+	s.send(sgrMouse(32, x+3, bottom+3, true))
+	s.waitText("Line 24")
+	s.send(sgrMouse(0, x+3, bottom+3, false))
+	s.waitText("Copied 24 line(s): Line 01")
+	// Every visible document row must be complete text or a blank padding
+	// row: highlight and diff rendering must not leave partial rows behind.
+	for r := y; r <= bottom; r++ {
+		line := s.screen.Lines()[r]
+		inner := strings.TrimSpace(strings.Trim(line, "│"))
+		if inner != "" && !strings.HasSuffix(inner, "Select and scroll this document.") {
+			t.Fatalf("row %d partially drawn: %q\n%s", r, line, strings.Join(s.screen.Lines(), "\n"))
+		}
 	}
 
 	// Resize: the document box must reflow to the new width.

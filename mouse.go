@@ -166,6 +166,7 @@ func (r *Renderer) dispatchMouse(raw *MouseEvent) {
 	left := raw.Button == MouseLeft
 	if left && raw.Type == MouseDrag && r.selection != nil && r.selection.Dragging {
 		r.updateSelection(raw.X, raw.Y)
+		r.scheduleAutoScroll()
 		if target != nil {
 			raw.IsDragging = true
 			r.sendMouse(target, raw)
@@ -198,10 +199,6 @@ func (r *Renderer) dispatchMouse(raw *MouseEvent) {
 
 	if left && raw.Type == MouseDown {
 		r.pressedMouse = target
-	}
-	if left && raw.Type == MouseDrag && r.selection != nil && r.selection.Dragging {
-		r.updateSelection(raw.X, raw.Y)
-		return
 	}
 	if left && raw.Type == MouseDrag && r.pressedMouse != nil {
 		r.capturedMouse = r.pressedMouse
@@ -275,6 +272,10 @@ func (r *Renderer) hitTest(x, y int) *Node {
 	visit = func(n *Node, clip Rect) *Node {
 		if n.Hidden || !clip.Contains(x, y) || !n.rect.Contains(x, y) {
 			return nil
+		}
+		// Scrollbars paint over a ScrollBox's content, so they also win hits.
+		if n.scroll != nil && n.scroll.barAt(x, y) != barNone {
+			return n
 		}
 		childClip := clip
 		if n.Style.Overflow == Hidden {

@@ -75,6 +75,7 @@ type Renderer struct {
 	lastClickNode                          *Node
 	lastClickX, lastClickY, lastClickCount int
 	lastClickTime                          time.Time
+	autoScrolling                          bool
 
 	renderReq   chan struct{}
 	updates     chan func()
@@ -267,7 +268,7 @@ func (r *Renderer) Run(ctx context.Context, draw func(b *Buffer)) (err error) {
 
 	frame := func() error {
 		r.validateFocus()
-		Draw(r.root, r.next)
+		r.drawFrame(r.next)
 		if draw != nil {
 			draw(r.next)
 		}
