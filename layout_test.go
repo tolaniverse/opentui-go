@@ -1,6 +1,9 @@
 package opentui
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func rect(x, y, w, h int) Rect { return Rect{x, y, w, h} }
 
@@ -202,4 +205,15 @@ func TestTreeOps(t *testing.T) {
 		}
 	}()
 	a.Add(p2)
+}
+
+func TestCellIntNonFiniteIsZero(t *testing.T) {
+	for _, f := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		if got := cellInt(f); got != 0 {
+			t.Errorf("cellInt(%v) = %d, want 0", f, got)
+		}
+	}
+	if got := cellInt(12); got != 12 {
+		t.Errorf("cellInt(12) = %d", got)
+	}
 }

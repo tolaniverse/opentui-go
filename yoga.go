@@ -1007,10 +1007,22 @@ func (n *Node) roundToGrid(absLeft, absTop float64) {
 	x, y := roundValueToPixelGrid(left), roundValueToPixelGrid(top)
 	r := roundValueToPixelGrid(left + float64(n.lay.dim[0]))
 	b := roundValueToPixelGrid(top + float64(n.lay.dim[1]))
-	n.rect = Rect{X: int(x), Y: int(y), W: int(r - x), H: int(b - y)}
+	n.rect = Rect{X: cellInt(x), Y: cellInt(y), W: cellInt(r - x), H: cellInt(b - y)}
 	for _, c := range n.children {
 		c.roundToGrid(left, top)
 	}
+}
+
+// cellInt converts a rounded layout value to a cell count. Yoga can leave a
+// dimension undefined (NaN) in degenerate trees, and Go leaves converting a
+// non-finite float to int implementation-defined: arm64 yields 0, amd64
+// yields math.MinInt64. Mapping non-finite values to 0 keeps layout
+// identical on every platform and keeps rect arithmetic from overflowing.
+func cellInt(f float64) int {
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return 0
+	}
+	return int(f)
 }
 
 func abs32(f float32) float32 {
