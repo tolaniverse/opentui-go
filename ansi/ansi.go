@@ -20,6 +20,8 @@ const (
 	AltScreenExit      = "\x1b[?1049l"
 	SyncBegin          = "\x1b[?2026h"
 	SyncEnd            = "\x1b[?2026l"
+	BracketedPasteOn   = "\x1b[?2004h"
+	BracketedPasteOff  = "\x1b[?2004l"
 	FgDefault          = "\x1b[39m"
 	BgDefault          = "\x1b[49m"
 	Bold               = "\x1b[1m"

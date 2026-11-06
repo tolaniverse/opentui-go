@@ -15,14 +15,26 @@ type Node struct {
 	Style  Style
 	ZIndex int  // higher paints later (on top); ties keep insertion order
 	Hidden bool // hidden nodes take no space and do not paint
+	// Focusable includes this node in renderer focus traversal.
+	Focusable bool
 
 	parent   *Node
 	children []*Node
 
-	border  Edges                    // set by Box
-	measure MeasureFunc              // leaves (Text): content size
-	paint   func(b *Buffer, n *Node) // draws this node only
-	text    *textState               // set by Text
+	border           Edges                    // set by Box
+	measure          MeasureFunc              // leaves (Text): content size
+	paint            func(b *Buffer, n *Node) // draws this node only
+	text             *textState               // set by Text
+	input            *inputState              // set by Input
+	keyHandler       func(*KeyEvent)          // control default, set by Input
+	pasteHandler     func(*PasteEvent)
+	userKeyHandler   func(*KeyEvent)
+	userPasteHandler func(*PasteEvent)
+	onFocus          func()
+	onBlur           func()
+	focusHandler     func()
+	blurHandler      func()
+	focused          bool
 
 	lay  layoutState // Yoga working data, fractional cells
 	rect Rect        // final layout, rounded to whole cells
@@ -80,6 +92,21 @@ func (n *Node) Children() []*Node { return slices.Clone(n.children) }
 
 // Rect is where the last layout put this node, in screen cells.
 func (n *Node) Rect() Rect { return n.rect }
+
+// Focused reports whether the renderer currently directs keyboard input to n.
+func (n *Node) Focused() bool { return n.focused }
+
+// SetKeyHandler installs the node's focused key handler. Passing nil removes it.
+func (n *Node) SetKeyHandler(fn func(*KeyEvent)) { n.userKeyHandler = fn }
+
+// SetPasteHandler installs the node's focused paste handler.
+func (n *Node) SetPasteHandler(fn func(*PasteEvent)) { n.userPasteHandler = fn }
+
+// SetFocusHandler installs a callback invoked when n receives focus.
+func (n *Node) SetFocusHandler(fn func()) { n.focusHandler = fn }
+
+// SetBlurHandler installs a callback invoked when n loses focus.
+func (n *Node) SetBlurHandler(fn func()) { n.blurHandler = fn }
 
 // Find returns the first node (depth-first) with the given ID, or nil.
 func (n *Node) Find(id string) *Node {

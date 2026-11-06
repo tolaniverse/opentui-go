@@ -56,13 +56,17 @@ type Renderer struct {
 	current *Buffer // what the terminal shows right now
 	next    *Buffer // what the app is drawing for the next frame
 
-	root *Node // the UI tree, painted before the draw callback
+	root         *Node // the UI tree, painted before the draw callback
+	focused      *Node
+	keyHandler   func(*KeyEvent)
+	pasteHandler func(*PasteEvent)
 
-	renderReq chan struct{}
-	updates   chan func()
-	done      chan struct{} // closed when Run returns
-	closeOnce sync.Once
-	closeErr  error
+	renderReq   chan struct{}
+	updates     chan func()
+	inputEvents chan terminalEvent
+	done        chan struct{} // closed when Run returns
+	closeOnce   sync.Once
+	closeErr    error
 }
 
 // ErrNotTerminal is returned when output is not a terminal (e.g. piped to a file).
@@ -72,10 +76,11 @@ var ErrNotTerminal = errors.New("opentui: output is not a terminal")
 func New(opts Options) (*Renderer, error) {
 	r := &Renderer{
 		opts: opts, in: opts.In, out: opts.Out,
-		root:      NewNode(Style{}),
-		renderReq: make(chan struct{}, 1),
-		updates:   make(chan func(), 64),
-		done:      make(chan struct{}),
+		root:        NewNode(Style{}),
+		renderReq:   make(chan struct{}, 1),
+		updates:     make(chan func(), 64),
+		inputEvents: make(chan terminalEvent, 64),
+		done:        make(chan struct{}),
 	}
 	r.root.ID = "root"
 	if r.in == nil {
@@ -109,6 +114,7 @@ func New(opts Options) (*Renderer, error) {
 		r.w.WriteString(ansi.AltScreenEnter)
 	}
 	r.w.WriteString(ansi.HideCursor)
+	r.w.WriteString(ansi.BracketedPasteOn)
 	r.w.WriteString(ansi.Clear)
 	if opts.Title != "" {
 		ansi.SetTitle(r.w, opts.Title)
@@ -192,6 +198,7 @@ func (r *Renderer) Close() error {
 	r.closeOnce.Do(func() {
 		// Undo in reverse order of New.
 		r.w.WriteString(ansi.Reset)
+		r.w.WriteString(ansi.BracketedPasteOff)
 		r.w.WriteString(ansi.ShowCursor)
 		r.w.WriteString(ansi.DefaultCursorStyle)
 		if r.opts.Title != "" {
@@ -230,14 +237,14 @@ func (r *Renderer) Run(ctx context.Context, draw func(b *Buffer)) (err error) {
 	signal.Notify(sigs, syscall.SIGWINCH, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(sigs)
 
-	ctrlC := make(chan struct{})
 	readerDone := make(chan struct{})
-	go r.readInput(ctx, ctrlC, readerDone)
+	go r.readInput(ctx, readerDone)
 	defer func() { cancel(); <-readerDone }() // wait so no read outlives Run
 
 	defer close(r.done)
 
 	frame := func() error {
+		r.validateFocus()
 		Draw(r.root, r.next)
 		if draw != nil {
 			draw(r.next)
@@ -251,8 +258,6 @@ func (r *Renderer) Run(ctx context.Context, draw func(b *Buffer)) (err error) {
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
-		case <-ctrlC:
 			return nil
 		case s := <-sigs:
 			if s != syscall.SIGWINCH {
@@ -284,18 +289,34 @@ func (r *Renderer) Run(ctx context.Context, draw func(b *Buffer)) (err error) {
 			if err := frame(); err != nil {
 				return err
 			}
+		case event := <-r.inputEvents:
+			if r.dispatchInput(event) {
+				return nil
+			}
+			if err := frame(); err != nil {
+				return err
+			}
 		}
 	}
 }
 
-// readInput watches stdin for Ctrl+C. It polls with a timeout instead of a
-// blocking Read, so it can notice ctx cancellation and return; a goroutine
-// stuck in Read would steal the next keypress from the shell after exit.
-// Full key decoding arrives in v0.3.0.
-func (r *Renderer) readInput(ctx context.Context, ctrlC chan<- struct{}, done chan<- struct{}) {
+// readInput decodes terminal input. It polls with a timeout both to notice
+// cancellation and to distinguish a lone Escape from an Alt-prefixed key.
+func (r *Renderer) readInput(ctx context.Context, done chan<- struct{}) {
 	defer close(done)
 	fd := int(r.in.Fd())
 	buf := make([]byte, 256)
+	decoder := keyDecoder{}
+	emit := func(events []terminalEvent) bool {
+		for _, event := range events {
+			select {
+			case r.inputEvents <- event:
+			case <-ctx.Done():
+				return false
+			}
+		}
+		return true
+	}
 	for ctx.Err() == nil {
 		fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
 		n, err := unix.Poll(fds, int((50 * time.Millisecond).Milliseconds()))
@@ -305,24 +326,21 @@ func (r *Renderer) readInput(ctx context.Context, ctrlC chan<- struct{}, done ch
 			}
 			return
 		}
-		if n == 0 || fds[0].Revents&unix.POLLIN == 0 {
+		if n == 0 {
+			if !emit(decoder.Flush()) {
+				return
+			}
+			continue
+		}
+		if fds[0].Revents&unix.POLLIN == 0 {
 			continue
 		}
 		m, err := unix.Read(fd, buf)
 		if err != nil || m == 0 {
 			return
 		}
-		if r.opts.IgnoreCtrlC {
-			continue
-		}
-		for _, b := range buf[:m] {
-			if b == 0x03 { // Ctrl+C in raw mode
-				select {
-				case ctrlC <- struct{}{}:
-				case <-ctx.Done():
-				}
-				return
-			}
+		if !emit(decoder.Feed(buf[:m])) {
+			return
 		}
 	}
 }
