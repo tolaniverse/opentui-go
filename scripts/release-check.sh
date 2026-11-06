@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Verify a commit exactly as it will be tagged, from a clean checkout.
+#
+#   scripts/release-check.sh            # checks HEAD
+#   scripts/release-check.sh v0.4.1     # checks a tag or any commit
+#
+# v0.4.0 shipped without two files because checks ran on the working tree,
+# which still had them. A worktree of the commit contains only what is
+# committed, so missing files fail here instead of after release.
+set -euo pipefail
+
+ref="${1:-HEAD}"
+repo="$(git rev-parse --show-toplevel)"
+dir="$(mktemp -d)"
+trap 'git -C "$repo" worktree remove --force "$dir" >/dev/null 2>&1 || rm -rf "$dir"' EXIT
+
+git -C "$repo" worktree add --detach -q "$dir" "$ref"
+cd "$dir"
+echo "== checking $(git rev-parse --short HEAD) ($ref) in clean worktree"
+
+unformatted="$(gofmt -l . | grep -v '^tools/yoga-oracle/' || true)"
+if [ -n "$unformatted" ]; then
+  echo "gofmt needed:"; echo "$unformatted"; exit 1
+fi
+go vet ./...
+go test -count=1 -race ./...
+go build ./...
+(cd tools/ptycheck && go vet ./... && go test -count=1 -race ./...)
+echo "== release check passed for $ref"

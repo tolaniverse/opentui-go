@@ -46,6 +46,16 @@ err = r.Run(context.Background(), nil)
 - `ScrollBox` clips content, handles wheel and arrow navigation, supports programmatic offsets and sticky-end follow, and paints overlay scrollbars.
 - Dragging selectable `Text` creates a renderer-owned selection. Double-click selects a word and triple-click selects a line.
 
+## Testing
+
+```bash
+go test -race ./...                         # library unit tests
+(cd tools/ptycheck && go test -race ./...)  # run examples in a real pty
+scripts/release-check.sh [ref]              # everything, on a clean checkout of ref
+```
+
+`tools/ptycheck` is a separate module, so the library keeps no test-only dependencies. It drives `examples/hello` through a pseudo-terminal and checks an emulated screen: wheel scrolling, drag selection and its highlight, resize reflow, Ctrl+C exit, and terminal-mode cleanup. Run `scripts/release-check.sh` before tagging; it checks only what is committed.
+
 ## Roadmap
 
 | Release | Scope |

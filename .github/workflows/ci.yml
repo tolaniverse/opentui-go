@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Library
+        run: |
+          go vet ./...
+          go test -count=1 -race ./...
+          go build ./...
+      - name: PTY end-to-end
+        working-directory: tools/ptycheck
+        run: |
+          go vet ./...
+          go test -count=1 -race ./...
