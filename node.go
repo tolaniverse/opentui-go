@@ -17,24 +17,31 @@ type Node struct {
 	Hidden bool // hidden nodes take no space and do not paint
 	// Focusable includes this node in renderer focus traversal.
 	Focusable bool
+	// Selectable allows the renderer to begin text selection on this node.
+	Selectable bool
 
 	parent   *Node
 	children []*Node
 
-	border           Edges                    // set by Box
-	measure          MeasureFunc              // leaves (Text): content size
-	paint            func(b *Buffer, n *Node) // draws this node only
-	text             *textState               // set by Text
-	input            *inputState              // set by Input
-	keyHandler       func(*KeyEvent)          // control default, set by Input
-	pasteHandler     func(*PasteEvent)
-	userKeyHandler   func(*KeyEvent)
-	userPasteHandler func(*PasteEvent)
-	onFocus          func()
-	onBlur           func()
-	focusHandler     func()
-	blurHandler      func()
-	focused          bool
+	border              Edges                    // set by Box
+	measure             MeasureFunc              // leaves (Text): content size
+	paint               func(b *Buffer, n *Node) // draws this node only
+	paintAfter          func(b *Buffer, n *Node) // draws over children
+	text                *textState               // set by Text
+	input               *inputState              // set by Input
+	keyHandler          func(*KeyEvent)          // control default, set by Input
+	pasteHandler        func(*PasteEvent)
+	userKeyHandler      func(*KeyEvent)
+	userPasteHandler    func(*PasteEvent)
+	mouseHandler        func(*MouseEvent)
+	mouseHandlers       map[MouseEventType]func(*MouseEvent)
+	controlMouseHandler func(*MouseEvent)
+	scroll              *scrollState
+	onFocus             func()
+	onBlur              func()
+	focusHandler        func()
+	blurHandler         func()
+	focused             bool
 
 	lay  layoutState // Yoga working data, fractional cells
 	rect Rect        // final layout, rounded to whole cells
@@ -52,6 +59,10 @@ func NewNode(style Style, children ...*Node) *Node {
 // the tree would become a loop. So does adding children to a leaf that
 // measures its own content (Text), as in Yoga.
 func (n *Node) Add(children ...*Node) *Node {
+	if n.scroll != nil && n.scroll.content != nil {
+		n.scroll.content.Add(children...)
+		return n
+	}
 	for _, c := range children {
 		if c != nil && n.measure != nil {
 			panic("opentui: a measured leaf (e.g. Text) cannot have children")
@@ -75,6 +86,9 @@ func (n *Node) Add(children ...*Node) *Node {
 
 // Remove detaches child from n. It reports whether child was found.
 func (n *Node) Remove(child *Node) bool {
+	if n.scroll != nil && n.scroll.content != nil && child != n.scroll.content {
+		return n.scroll.content.Remove(child)
+	}
 	i := slices.Index(n.children, child)
 	if i < 0 {
 		return false
@@ -88,7 +102,12 @@ func (n *Node) Remove(child *Node) bool {
 func (n *Node) Parent() *Node { return n.parent }
 
 // Children returns a copy of the child list.
-func (n *Node) Children() []*Node { return slices.Clone(n.children) }
+func (n *Node) Children() []*Node {
+	if n.scroll != nil && n.scroll.content != nil {
+		return n.scroll.content.Children()
+	}
+	return slices.Clone(n.children)
+}
 
 // Rect is where the last layout put this node, in screen cells.
 func (n *Node) Rect() Rect { return n.rect }
@@ -101,6 +120,21 @@ func (n *Node) SetKeyHandler(fn func(*KeyEvent)) { n.userKeyHandler = fn }
 
 // SetPasteHandler installs the node's focused paste handler.
 func (n *Node) SetPasteHandler(fn func(*PasteEvent)) { n.userPasteHandler = fn }
+
+// SetMouseHandler installs a handler for every mouse event delivered to n.
+func (n *Node) SetMouseHandler(fn func(*MouseEvent)) { n.mouseHandler = fn }
+
+// SetMouseEventHandler installs a handler for one mouse event type.
+func (n *Node) SetMouseEventHandler(eventType MouseEventType, fn func(*MouseEvent)) {
+	if fn == nil {
+		delete(n.mouseHandlers, eventType)
+		return
+	}
+	if n.mouseHandlers == nil {
+		n.mouseHandlers = make(map[MouseEventType]func(*MouseEvent))
+	}
+	n.mouseHandlers[eventType] = fn
+}
 
 // SetFocusHandler installs a callback invoked when n receives focus.
 func (n *Node) SetFocusHandler(fn func()) { n.focusHandler = fn }
@@ -147,6 +181,9 @@ func Paint(n *Node, b *Buffer) {
 	}
 	for _, c := range n.paintOrder() {
 		Paint(c, b)
+	}
+	if n.paintAfter != nil {
+		n.paintAfter(b, n)
 	}
 }
 

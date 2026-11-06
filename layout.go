@@ -183,4 +183,5 @@ func ComputeLayout(root *Node, width, height int) {
 	root.lay.pos = [4]float32{}
 	root.calculate(w, h, stretchFit, stretchFit, w, h, true)
 	root.roundToGrid(0, 0)
+	prepareScrollTree(root)
 }

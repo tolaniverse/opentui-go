@@ -7,6 +7,9 @@ func (r *Renderer) SetKeyHandler(fn func(*KeyEvent)) { r.keyHandler = fn }
 // SetPasteHandler installs a renderer-wide bracketed-paste handler.
 func (r *Renderer) SetPasteHandler(fn func(*PasteEvent)) { r.pasteHandler = fn }
 
+// SetMouseHandler installs a renderer-wide mouse handler. It runs before routing.
+func (r *Renderer) SetMouseHandler(fn func(*MouseEvent)) { r.mouseHandler = fn }
+
 // Focus moves keyboard focus to n. It returns false when n is nil,
 // non-focusable, hidden, or detached from this renderer's tree.
 func (r *Renderer) Focus(n *Node) bool {
@@ -151,6 +154,8 @@ func (r *Renderer) dispatchInput(input terminalEvent) bool {
 				target.pasteHandler(paste)
 			}
 		}
+	case mouseInput:
+		r.dispatchMouse(event.event)
 	}
 	return false
 }

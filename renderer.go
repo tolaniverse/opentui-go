@@ -41,6 +41,12 @@ type Options struct {
 
 	// Title sets the terminal window title while running.
 	Title string
+
+	// NoMouse disables mouse reporting. Mouse input and click-to-focus are on
+	// by default, matching upstream OpenTUI.
+	NoMouse bool
+	// NoAutoFocus disables the default left-click focus behavior.
+	NoAutoFocus bool
 }
 
 // Renderer owns the terminal: it switches it into raw mode, keeps two
@@ -56,10 +62,19 @@ type Renderer struct {
 	current *Buffer // what the terminal shows right now
 	next    *Buffer // what the app is drawing for the next frame
 
-	root         *Node // the UI tree, painted before the draw callback
-	focused      *Node
-	keyHandler   func(*KeyEvent)
-	pasteHandler func(*PasteEvent)
+	root                                   *Node // the UI tree, painted before the draw callback
+	focused                                *Node
+	keyHandler                             func(*KeyEvent)
+	pasteHandler                           func(*PasteEvent)
+	mouseHandler                           func(*MouseEvent)
+	pressedMouse                           *Node
+	capturedMouse                          *Node
+	hoveredMouse                           *Node
+	selection                              *Selection
+	selectionHandler                       func(*Selection)
+	lastClickNode                          *Node
+	lastClickX, lastClickY, lastClickCount int
+	lastClickTime                          time.Time
 
 	renderReq   chan struct{}
 	updates     chan func()
@@ -115,6 +130,10 @@ func New(opts Options) (*Renderer, error) {
 	}
 	r.w.WriteString(ansi.HideCursor)
 	r.w.WriteString(ansi.BracketedPasteOn)
+	if !opts.NoMouse {
+		r.w.WriteString(ansi.MouseMotionOn)
+		r.w.WriteString(ansi.MouseSGROn)
+	}
 	r.w.WriteString(ansi.Clear)
 	if opts.Title != "" {
 		ansi.SetTitle(r.w, opts.Title)
@@ -198,6 +217,10 @@ func (r *Renderer) Close() error {
 	r.closeOnce.Do(func() {
 		// Undo in reverse order of New.
 		r.w.WriteString(ansi.Reset)
+		if !r.opts.NoMouse {
+			r.w.WriteString(ansi.MouseSGROff)
+			r.w.WriteString(ansi.MouseMotionOff)
+		}
 		r.w.WriteString(ansi.BracketedPasteOff)
 		r.w.WriteString(ansi.ShowCursor)
 		r.w.WriteString(ansi.DefaultCursorStyle)
@@ -238,7 +261,6 @@ func (r *Renderer) Run(ctx context.Context, draw func(b *Buffer)) (err error) {
 	defer signal.Stop(sigs)
 
 	readerDone := make(chan struct{})
-	go r.readInput(ctx, readerDone)
 	defer func() { cancel(); <-readerDone }() // wait so no read outlives Run
 
 	defer close(r.done)
@@ -254,6 +276,8 @@ func (r *Renderer) Run(ctx context.Context, draw func(b *Buffer)) (err error) {
 	if err := frame(); err != nil {
 		return err
 	}
+	// Start reading only after mouse and paste modes are visible to the terminal.
+	go r.readInput(ctx, readerDone)
 
 	for {
 		select {

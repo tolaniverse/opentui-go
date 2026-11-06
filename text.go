@@ -7,17 +7,21 @@ import (
 
 // TextOptions configures Text.
 type TextOptions struct {
-	ID     string
-	Style  Style
-	ZIndex int
-	FG     RGBA // zero value = white
-	BG     RGBA // Transparent (zero) = show what is underneath
-	Attr   Attr
+	ID          string
+	Style       Style
+	ZIndex      int
+	FG          RGBA // zero value = white
+	BG          RGBA // Transparent (zero) = show what is underneath
+	Attr        Attr
+	NoSelect    bool
+	SelectionFG RGBA
+	SelectionBG RGBA
 }
 
 type textState struct {
-	lines []string
-	opts  TextOptions
+	lines     []string
+	opts      TextOptions
+	selection []textSelection
 }
 
 // Text returns a leaf node that shows content. Lines split on "\n".
@@ -31,7 +35,14 @@ func Text(content string, o TextOptions) *Node {
 	if o.FG == (RGBA{}) {
 		o.FG = White
 	}
+	if o.SelectionFG == (RGBA{}) {
+		o.SelectionFG = RGB(30, 30, 46)
+	}
+	if o.SelectionBG == (RGBA{}) {
+		o.SelectionBG = RGB(137, 180, 250)
+	}
 	n.text = &textState{opts: o}
+	n.Selectable = !o.NoSelect
 	n.SetText(content)
 	// measure is Yoga's "measure function": how a leaf tells layout how
 	// big its content is, within the limits it is given.
@@ -85,5 +96,15 @@ func paintText(b *Buffer, n *Node) {
 	}
 	for i, line := range n.text.lines {
 		b.DrawText(line, r.X, r.Y+i, o.FG, o.BG, o.Attr)
+	}
+	for _, selected := range n.text.selection {
+		if selected.line < 0 || selected.line >= len(n.text.lines) {
+			continue
+		}
+		runes := []rune(n.text.lines[selected.line])
+		start, end := min(max(selected.start, 0), len(runes)), min(max(selected.end, 0), len(runes))
+		if start < end {
+			b.DrawText(string(runes[start:end]), r.X+start, r.Y+selected.line, o.SelectionFG, o.SelectionBG, o.Attr)
+		}
 	}
 }

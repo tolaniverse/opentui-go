@@ -1,7 +1,7 @@
 //go:build unix
 
-// hello is the v0.3.0 demo: keyboard decoding, focus traversal, bracketed
-// paste, single-line inputs, Yoga-compatible layout, and resize handling.
+// hello is the v0.4.0 demo: mouse routing, scrolling, text selection,
+// keyboard input, focus, and resize handling.
 //
 //	go run ./examples/hello
 package main
@@ -17,72 +17,43 @@ import (
 func main() {
 	bg := tui.MustHex("#1e1e2e")
 	panel := tui.MustHex("#181825")
-	field := tui.MustHex("#11111b")
 	accent := tui.MustHex("#89b4fa")
 	green := tui.MustHex("#a6e3a1")
 	muted := tui.MustHex("#7f849c")
 
-	r, err := tui.New(tui.Options{Background: bg, Title: "opentui-go v0.3.0"})
+	r, err := tui.New(tui.Options{Background: bg, Title: "opentui-go v0.4.0"})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "hello:", err)
 		os.Exit(1)
 	}
 
-	status := tui.Text("Ready — type your name", tui.TextOptions{FG: green})
-	var email *tui.Node
-	name := tui.Input(tui.InputOptions{
-		ID: "name", Placeholder: "Ada Lovelace", MaxLength: 32,
-		Style: tui.Style{Width: tui.Pct(100), Height: tui.Cells(1)},
-		FG:    tui.White, BG: field, FocusedFG: tui.White, FocusedBG: accent,
-		OnSubmit: func(value string) {
-			status.SetText("Name saved — enter your email")
-			r.Focus(email)
+	status := tui.Text("Drag text to select · wheel or arrows scroll", tui.TextOptions{FG: green})
+	lines := make([]*tui.Node, 24)
+	for i := range lines {
+		lines[i] = tui.Text(fmt.Sprintf("Line %02d  Select and scroll this document.", i+1), tui.TextOptions{FG: tui.White})
+	}
+	scroll := tui.ScrollBox(tui.ScrollBoxOptions{
+		BoxOptions: tui.BoxOptions{
+			Border: tui.BorderAll, BorderColor: accent, Background: panel,
+			Title: " Document ", TitleColor: accent,
+			Style: tui.Style{FlexGrow: 1, Padding: tui.All(1)},
 		},
-	})
-	email = tui.Input(tui.InputOptions{
-		ID: "email", Placeholder: "ada@example.com", MinLength: 3, MaxLength: 64,
-		Style: tui.Style{Width: tui.Pct(100), Height: tui.Cells(1)},
-		FG:    tui.White, BG: field, FocusedFG: tui.White, FocusedBG: accent,
-		OnSubmit: func(value string) {
-			status.SetText("Submitted: " + name.Value() + " <" + value + ">")
-		},
-	})
-	name.SetFocusHandler(func() { status.SetText("Name — Enter moves to email") })
-	email.SetFocusHandler(func() { status.SetText("Email — Enter submits") })
+		OnScroll: func(_, y int) { status.SetText(fmt.Sprintf("Scrolled to line %d", y+1)) },
+	}, lines...)
 
 	header := tui.Box(tui.BoxOptions{
 		Border: tui.BorderAll, BorderStyle: tui.BorderRounded, BorderColor: accent,
-		Title: " opentui-go v0.3.0 ", TitleColor: accent,
+		Title: " opentui-go v0.4.0 ", TitleColor: accent,
 		Style: tui.Style{Height: tui.Cells(3), Padding: tui.XY(1, 0)},
-	}, tui.Text("Pure Go keyboard input · focus · editing · bracketed paste", tui.TextOptions{FG: tui.White}))
+	}, tui.Text("Pure Go mouse input · scrolling · text selection", tui.TextOptions{FG: tui.White}))
+	footer := tui.Text("Click focus  •  wheel/arrows scroll  •  drag selects  •  Ctrl+C quit", tui.TextOptions{FG: muted, Attr: tui.AttrDim})
 
-	nameField := tui.Box(tui.BoxOptions{
-		Border: tui.BorderAll, BorderColor: muted, Background: field,
-		Title: " Name ", TitleColor: accent,
-		Style: tui.Style{Height: tui.Cells(3), Padding: tui.XY(1, 0)},
-	}, name)
-	emailField := tui.Box(tui.BoxOptions{
-		Border: tui.BorderAll, BorderColor: muted, Background: field,
-		Title: " Email ", TitleColor: accent,
-		Style: tui.Style{Height: tui.Cells(3), Padding: tui.XY(1, 0)},
-	}, email)
-	form := tui.Box(tui.BoxOptions{
-		Border: tui.BorderAll, BorderColor: accent, Background: panel,
-		Title: " Interactive form ", TitleColor: accent,
-		Style: tui.Style{FlexGrow: 1, Gap: 1, Padding: tui.All(1), Overflow: tui.Hidden},
-	}, nameField, emailField, status)
-
-	footer := tui.Text("Tab / Shift+Tab focus  •  paste text  •  Enter submit  •  Esc blur  •  Ctrl+C quit", tui.TextOptions{FG: muted, Attr: tui.AttrDim})
 	r.Root().Style = tui.Style{Gap: 1}
-	r.Root().Add(header, form, footer)
-	r.SetKeyHandler(func(key *tui.KeyEvent) {
-		if key.Name == "escape" {
-			r.Blur()
-			status.SetText("Focus cleared — press Tab to resume")
-			key.PreventDefault()
-		}
+	r.Root().Add(header, scroll, status, footer)
+	r.SetSelectionHandler(func(selection *tui.Selection) {
+		status.SetText("Selected: " + selection.Text())
 	})
-	r.Focus(name)
+	r.Focus(scroll)
 
 	if err := r.Run(context.Background(), nil); err != nil {
 		fmt.Fprintln(os.Stderr, "hello:", err)
