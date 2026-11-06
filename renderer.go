@@ -1,0 +1,272 @@
+//go:build unix
+
+package opentui
+
+import (
+	"bufio"
+	"context"
+	"errors"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
+
+	"golang.org/x/sys/unix"
+	"golang.org/x/term"
+
+	"github.com/tolaniverse/opentui-go/ansi"
+)
+
+// Options configures a Renderer. The zero value is a sensible default.
+type Options struct {
+	In  *os.File // keyboard input; default os.Stdin
+	Out *os.File // screen output; default os.Stdout
+
+	// Background is painted under everything. Transparent (the zero value)
+	// means "use the terminal's own background".
+	Background RGBA
+
+	// IgnoreCtrlC disables the default "Ctrl+C stops Run" behaviour.
+	// (Upstream: exitOnCtrlC, default true.)
+	IgnoreCtrlC bool
+
+	// MainScreen draws on the normal screen instead of the alternate screen.
+	// The alternate screen is a separate page that disappears on exit, so
+	// the user's shell history is left untouched.
+	MainScreen bool
+
+	// NoSync disables synchronized output (DEC mode 2026).
+	NoSync bool
+
+	// Title sets the terminal window title while running.
+	Title string
+}
+
+// Renderer owns the terminal: it switches it into raw mode, keeps two
+// buffers (what is on screen, what should be on screen) and paints the
+// difference. Port of the core of `CliRenderer` (upstream renderer.ts and
+// renderer.zig).
+type Renderer struct {
+	opts     Options
+	in, out  *os.File
+	w        *bufio.Writer
+	oldState *term.State
+
+	current *Buffer // what the terminal shows right now
+	next    *Buffer // what the app is drawing for the next frame
+
+	renderReq chan struct{}
+	closeOnce sync.Once
+	closeErr  error
+}
+
+// ErrNotTerminal is returned when output is not a terminal (e.g. piped to a file).
+var ErrNotTerminal = errors.New("opentui: output is not a terminal")
+
+// New takes over the terminal. Always call Close (Run does it for you).
+func New(opts Options) (*Renderer, error) {
+	r := &Renderer{opts: opts, in: opts.In, out: opts.Out, renderReq: make(chan struct{}, 1)}
+	if r.in == nil {
+		r.in = os.Stdin
+	}
+	if r.out == nil {
+		r.out = os.Stdout
+	}
+	if !term.IsTerminal(int(r.out.Fd())) || !term.IsTerminal(int(r.in.Fd())) {
+		return nil, ErrNotTerminal
+	}
+
+	width, height, err := term.GetSize(int(r.out.Fd()))
+	if err != nil {
+		return nil, err
+	}
+
+	// Raw mode: keys arrive one byte at a time, unechoed, and Ctrl+C is
+	// delivered as byte 0x03 instead of killing the process.
+	r.oldState, err = term.MakeRaw(int(r.in.Fd()))
+	if err != nil {
+		return nil, err
+	}
+
+	r.w = bufio.NewWriterSize(r.out, 64*1024)
+	r.current = NewBuffer(width, height)
+	r.next = NewBuffer(width, height)
+	r.resetBuffers()
+
+	if !opts.MainScreen {
+		r.w.WriteString(ansi.AltScreenEnter)
+	}
+	r.w.WriteString(ansi.HideCursor)
+	r.w.WriteString(ansi.Clear)
+	if opts.Title != "" {
+		ansi.SetTitle(r.w, opts.Title)
+	}
+	if err := r.w.Flush(); err != nil {
+		r.Close()
+		return nil, err
+	}
+	return r, nil
+}
+
+// resetBuffers marks the screen as unknown so the next frame repaints all
+// cells, and clears the frame being drawn.
+func (r *Renderer) resetBuffers() {
+	r.current.fill(clearChar, RGB(0, 0, 0))
+	bd := r.opts.Background
+	bd.A = 255
+	r.next.SetBackdrop(bd)
+	r.next.Clear(r.opts.Background)
+}
+
+// Size returns the terminal size in cells.
+func (r *Renderer) Size() (width, height int) { return r.next.Width(), r.next.Height() }
+
+// Buffer is the frame being drawn. Draw into it, then call Render.
+func (r *Renderer) Buffer() *Buffer { return r.next }
+
+// Render paints what changed since the last frame, then clears the drawing
+// buffer for the next one.
+func (r *Renderer) Render() error {
+	encodeFrame(r.w, r.current, r.next, FrameOptions{Sync: !r.opts.NoSync})
+	r.next.Clear(r.opts.Background)
+	return r.w.Flush()
+}
+
+// Resize adapts both buffers to a new terminal size and schedules a full repaint.
+func (r *Renderer) Resize(width, height int) {
+	r.current.Resize(width, height)
+	r.next.Resize(width, height)
+	// No screen clear here: resetBuffers makes the next frame repaint every
+	// cell inside one synchronized update, which avoids a visible flash.
+	r.resetBuffers()
+}
+
+// RequestRender asks Run to draw a new frame. Safe to call from any
+// goroutine; extra requests while one is pending are merged.
+func (r *Renderer) RequestRender() {
+	select {
+	case r.renderReq <- struct{}{}:
+	default:
+	}
+}
+
+// Close restores the terminal exactly as we found it. Safe to call twice.
+func (r *Renderer) Close() error {
+	r.closeOnce.Do(func() {
+		// Undo in reverse order of New.
+		r.w.WriteString(ansi.Reset)
+		r.w.WriteString(ansi.ShowCursor)
+		r.w.WriteString(ansi.DefaultCursorStyle)
+		if r.opts.Title != "" {
+			ansi.SetTitle(r.w, "")
+		}
+		if !r.opts.MainScreen {
+			r.w.WriteString(ansi.AltScreenExit)
+		}
+		flushErr := r.w.Flush()
+		restoreErr := term.Restore(int(r.in.Fd()), r.oldState)
+		r.closeErr = errors.Join(flushErr, restoreErr)
+	})
+	return r.closeErr
+}
+
+// Run draws frames until ctx is cancelled, Ctrl+C is pressed (unless
+// IgnoreCtrlC), or the process gets SIGINT/SIGTERM/SIGHUP. draw is called
+// for every frame with an empty buffer; it runs on Run's goroutine.
+//
+// Frames are drawn at start, on resize, and on RequestRender.
+// Run always calls Close, even if draw panics.
+func (r *Renderer) Run(ctx context.Context, draw func(b *Buffer)) (err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			r.Close() // restore the terminal first so the panic is readable
+			panic(p)
+		}
+		err = errors.Join(err, r.Close())
+	}()
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	sigs := make(chan os.Signal, 4)
+	signal.Notify(sigs, syscall.SIGWINCH, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	defer signal.Stop(sigs)
+
+	ctrlC := make(chan struct{})
+	readerDone := make(chan struct{})
+	go r.readInput(ctx, ctrlC, readerDone)
+	defer func() { cancel(); <-readerDone }() // wait so no read outlives Run
+
+	frame := func() error {
+		draw(r.next)
+		return r.Render()
+	}
+	if err := frame(); err != nil {
+		return err
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ctrlC:
+			return nil
+		case s := <-sigs:
+			if s != syscall.SIGWINCH {
+				return nil
+			}
+			w, h, err := term.GetSize(int(r.out.Fd()))
+			if err != nil {
+				return err
+			}
+			r.Resize(w, h)
+			if err := frame(); err != nil {
+				return err
+			}
+		case <-r.renderReq:
+			if err := frame(); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// readInput watches stdin for Ctrl+C. It polls with a timeout instead of a
+// blocking Read, so it can notice ctx cancellation and return; a goroutine
+// stuck in Read would steal the next keypress from the shell after exit.
+// Full key decoding arrives in v0.3.0.
+func (r *Renderer) readInput(ctx context.Context, ctrlC chan<- struct{}, done chan<- struct{}) {
+	defer close(done)
+	fd := int(r.in.Fd())
+	buf := make([]byte, 256)
+	for ctx.Err() == nil {
+		fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+		n, err := unix.Poll(fds, int((50 * time.Millisecond).Milliseconds()))
+		if err != nil {
+			if errors.Is(err, unix.EINTR) { // a signal (e.g. SIGWINCH) interrupted the wait
+				continue
+			}
+			return
+		}
+		if n == 0 || fds[0].Revents&unix.POLLIN == 0 {
+			continue
+		}
+		m, err := unix.Read(fd, buf)
+		if err != nil || m == 0 {
+			return
+		}
+		if r.opts.IgnoreCtrlC {
+			continue
+		}
+		for _, b := range buf[:m] {
+			if b == 0x03 { // Ctrl+C in raw mode
+				select {
+				case ctrlC <- struct{}{}:
+				case <-ctx.Done():
+				}
+				return
+			}
+		}
+	}
+}
