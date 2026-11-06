@@ -2,7 +2,6 @@ package opentui
 
 import (
 	"strings"
-	"unicode/utf8"
 )
 
 // TextOptions configures Text.
@@ -28,7 +27,7 @@ type textState struct {
 // Its natural size is the longest line × the number of lines.
 //
 // v0.2.0 is a simplified stand-in for upstream TextRenderable: no
-// wrapping, no styled spans, one cell per rune.
+// wrapping or styled spans.
 func Text(content string, o TextOptions) *Node {
 	n := NewNode(o.Style)
 	n.ID, n.ZIndex = o.ID, o.ZIndex
@@ -49,7 +48,7 @@ func Text(content string, o TextOptions) *Node {
 	n.measure = func(w float64, wm MeasureMode, h float64, hm MeasureMode) (float64, float64) {
 		cw := 0
 		for _, l := range n.text.lines {
-			cw = max(cw, utf8.RuneCountInString(l))
+			cw = max(cw, displayWidth(l))
 		}
 		return fit(float64(cw), w, wm), fit(float64(len(n.text.lines)), h, hm)
 	}
@@ -101,10 +100,10 @@ func paintText(b *Buffer, n *Node) {
 		if selected.line < 0 || selected.line >= len(n.text.lines) {
 			continue
 		}
-		runes := []rune(n.text.lines[selected.line])
-		start, end := min(max(selected.start, 0), len(runes)), min(max(selected.end, 0), len(runes))
-		if start < end {
-			b.DrawText(string(runes[start:end]), r.X+start, r.Y+selected.line, o.SelectionFG, o.SelectionBG, o.Attr)
+		line := n.text.lines[selected.line]
+		selectedText, start, _ := selectedColumns(line, selected.start, selected.end)
+		if selectedText != "" {
+			b.DrawText(selectedText, r.X+start, r.Y+selected.line, o.SelectionFG, o.SelectionBG, o.Attr)
 		}
 	}
 }

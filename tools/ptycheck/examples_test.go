@@ -20,6 +20,17 @@ func TestHello(t *testing.T) {
 	s.exitCleanly()
 }
 
+func TestUnicode(t *testing.T) {
+	s := start(t, buildExample(t, "unicode"), 40, 12)
+	s.waitFor("Unicode terminal-cell alignment", func() bool {
+		return s.screen.Cell(3, 0).Char == 'B' &&
+			s.screen.Cell(1, 1).Char == 'X' &&
+			s.screen.Cell(2, 2).Char == '!' &&
+			s.screen.Cell(0, 2).Grapheme == "👩🏽‍💻"
+	})
+	s.exitCleanly()
+}
+
 var clockRE = regexp.MustCompile(`\d\d:\d\d:\d\d`)
 
 func TestLayout(t *testing.T) {

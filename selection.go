@@ -4,7 +4,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode"
 )
 
 // SelectionBehavior controls how selection endpoints expand.
@@ -155,28 +154,32 @@ func (r *Renderer) updateTextSelections() {
 			if y < ay || y > fy {
 				continue
 			}
-			runes := []rune(line)
-			start, end := 0, len(runes)
+			width := displayWidth(line)
+			start, end := 0, width
 			if y == ay {
 				start = ax - base.X
 			}
 			if y == fy {
 				end = fx - base.X + 1
 			}
-			start, end = min(max(start, 0), len(runes)), min(max(end, 0), len(runes))
+			start, end = min(max(start, 0), width), min(max(end, 0), width)
 			if r.selection.Behavior == SelectLine {
-				start, end = 0, len(runes)
+				start, end = 0, width
 			} else if r.selection.Behavior == SelectWord && ay == fy && y == ay {
-				point := min(max(r.selection.anchorRelX-n.Style.Padding.Left, 0), max(len(runes)-1, 0))
-				start, end = wordBounds(runes, point)
+				point := r.selection.anchorRelX - n.Style.Padding.Left
+				start, end = wordColumns(line, point)
 			} else if r.selection.Behavior == SelectCell && ax == fx && ay == fy {
 				start, end = 0, 0
 			}
 			if start >= end {
 				continue
 			}
-			n.text.selection = append(n.text.selection, textSelection{line: lineIndex, start: start, end: end})
-			segments = append(segments, segment{y: y, x: base.X + start, text: string(runes[start:end])})
+			text, from, to := selectedColumns(line, start, end)
+			if text == "" {
+				continue
+			}
+			n.text.selection = append(n.text.selection, textSelection{line: lineIndex, start: from, end: to})
+			segments = append(segments, segment{y: y, x: base.X + from, text: text})
 		}
 	}
 	sort.SliceStable(segments, func(i, j int) bool {
@@ -197,23 +200,6 @@ func (r *Renderer) updateTextSelections() {
 		lastY = segment.y
 	}
 	r.selection.text = out.String()
-}
-
-func wordBounds(runes []rune, point int) (start, end int) {
-	if len(runes) == 0 {
-		return 0, 0
-	}
-	point = min(max(point, 0), len(runes)-1)
-	isWord := func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' }
-	class := isWord(runes[point])
-	start, end = point, point+1
-	for start > 0 && isWord(runes[start-1]) == class {
-		start--
-	}
-	for end < len(runes) && isWord(runes[end]) == class {
-		end++
-	}
-	return start, end
 }
 
 func absInt(value int) int {

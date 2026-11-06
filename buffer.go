@@ -1,5 +1,11 @@
 package opentui
 
+import (
+	"unicode/utf8"
+
+	"github.com/rivo/uniseg"
+)
+
 // Attr is a set of text style flags, stored as bits.
 //
 // Port of `TextAttributes` in upstream ansi.zig. Upstream also packs a
@@ -19,16 +25,19 @@ const (
 	AttrNone Attr = 0
 )
 
-// Cell is one character position on screen.
+// Cell is one terminal position. A wide grapheme occupies a leading cell and
+// a continuation cell. Grapheme is empty for ordinary single-rune cells.
 //
 // Port of `Cell` in upstream buffer.zig. v0.1.0 stores one rune per cell and
 // treats every rune as one column wide; wide characters and grapheme
 // clusters come in a later release.
 type Cell struct {
-	Char rune
-	FG   RGBA
-	BG   RGBA
-	Attr Attr
+	Char         rune
+	Grapheme     string
+	Continuation bool
+	FG           RGBA
+	BG           RGBA
+	Attr         Attr
 }
 
 // clearChar marks cells that have never been painted. Nothing draws it, so
@@ -132,7 +141,35 @@ func (b *Buffer) Get(x, y int) (c Cell, ok bool) {
 // Set overwrites a cell without blending. Out-of-bounds writes are ignored.
 func (b *Buffer) Set(x, y int, c Cell) {
 	if b.inBounds(x, y) {
+		width := 1
+		if c.Grapheme != "" {
+			width = max(uniseg.StringWidth(c.Grapheme), 1)
+		}
+		if !b.inBounds(x+width-1, y) {
+			return // never store half a wide glyph
+		}
+		b.eraseWideAt(x, y)
+		for j := 1; j < width; j++ {
+			b.eraseWideAt(x+j, y)
+			b.cells[y*b.width+x+j] = Cell{Continuation: true, FG: c.FG, BG: c.BG, Attr: c.Attr}
+		}
 		b.cells[y*b.width+x] = c
+	}
+}
+
+// eraseWideAt clears all cells of an old multi-cell glyph when any is replaced.
+func (b *Buffer) eraseWideAt(x, y int) {
+	start := x
+	for start > 0 && b.cells[y*b.width+start].Continuation {
+		start--
+	}
+	lead := b.cells[y*b.width+start]
+	if lead.Grapheme == "" || uniseg.StringWidth(lead.Grapheme) < 2 {
+		return
+	}
+	for col := start; col < min(start+uniseg.StringWidth(lead.Grapheme), b.width); col++ {
+		old := b.cells[y*b.width+col]
+		b.cells[y*b.width+col] = Cell{Char: ' ', FG: White, BG: old.BG}
 	}
 }
 
@@ -143,6 +180,35 @@ func (b *Buffer) SetBlended(x, y int, c Cell) {
 		return
 	}
 	i := y*b.width + x
+	width := 1
+	if c.Grapheme != "" {
+		width = max(uniseg.StringWidth(c.Grapheme), 1)
+	}
+	if !b.inBounds(x+width-1, y) {
+		return
+	}
+	// A translucent space tints text rather than erasing it. Keep both
+	// halves of an existing wide glyph intact when a translucent fill paints
+	// each cell independently.
+	if c.Char == ' ' && c.BG.A < 255 {
+		old := b.cells[i]
+		if old.Continuation {
+			old.BG = blend(c.BG, old.BG, b.backdrop)
+			b.cells[i] = old
+			return
+		}
+		if old.Grapheme != "" && uniseg.StringWidth(old.Grapheme) > 1 {
+			b.cells[i] = b.blendCells(c, old)
+			return
+		}
+	}
+	b.eraseWideAt(x, y)
+	if width > 1 {
+		for j := 1; j < width; j++ {
+			b.eraseWideAt(x+j, y)
+			b.cells[i+j] = Cell{Continuation: true, FG: c.FG, BG: c.BG, Attr: c.Attr}
+		}
+	}
 	b.cells[i] = b.blendCells(c, b.cells[i])
 }
 
@@ -161,32 +227,60 @@ func (b *Buffer) blendCells(over, dest Cell) Cell {
 	// tints it, instead of erasing it. This is how overlays "dim" content.
 	keep := over.Char == ' ' && dest.Char != 0 && dest.Char != ' ' && dest.Char != clearChar
 	if keep {
-		return Cell{Char: dest.Char, FG: blend(over.BG, dest.FG, b.backdrop), BG: bg, Attr: dest.Attr}
+		return Cell{Char: dest.Char, Grapheme: dest.Grapheme, FG: blend(over.BG, dest.FG, b.backdrop), BG: bg, Attr: dest.Attr}
 	}
 
 	fg := over.FG
 	if fgAlpha {
 		fg = blend(over.FG, bg, b.backdrop)
 	}
-	return Cell{Char: over.Char, FG: fg, BG: bg, Attr: over.Attr}
+	return Cell{Char: over.Char, Grapheme: over.Grapheme, FG: fg, BG: bg, Attr: over.Attr}
 }
 
-// DrawText writes text starting at (x, y), one rune per cell, clipped to the
+// DrawText writes grapheme clusters starting at (x, y), clipped to the
 // buffer. It does not wrap. Translucent colors blend with what is underneath.
 func (b *Buffer) DrawText(text string, x, y int, fg, bg RGBA, attr Attr) {
 	clip := b.Clip()
 	if y < clip.Y || y >= clip.Y+clip.H {
 		return
 	}
-	for _, r := range text {
+	if asciiOnly(text) {
+		for i := 0; i < len(text) && x < clip.X+clip.W; i++ {
+			if x >= clip.X {
+				r := rune(text[i])
+				if r < 0x20 || r == 0x7f {
+					r = ' '
+				}
+				b.SetBlended(x, y, Cell{Char: r, FG: fg, BG: bg, Attr: attr})
+			}
+			x++
+		}
+		return
+	}
+	graphemes := uniseg.NewGraphemes(text)
+	for graphemes.Next() {
+		glyph := graphemes.Str()
+		width := graphemes.Width()
+		r, _ := utf8.DecodeRuneInString(glyph)
+		if r < 0x20 || r == 0x7f { // control characters would corrupt the screen
+			r, glyph, width = ' ', " ", 1
+		}
+		if width <= 0 {
+			continue
+		}
 		if x >= clip.X+clip.W {
 			return
 		}
-		if r < 0x20 || r == 0x7f { // control characters would corrupt the screen
-			r = ' '
+		if x < clip.X || x+width > clip.X+clip.W {
+			x += width // never paint a partial grapheme
+			continue
 		}
-		b.SetBlended(x, y, Cell{Char: r, FG: fg, BG: bg, Attr: attr})
-		x++
+		cell := Cell{Char: r, FG: fg, BG: bg, Attr: attr}
+		if width > 1 || len(glyph) != len(string(r)) {
+			cell.Grapheme = glyph
+		}
+		b.SetBlended(x, y, cell)
+		x += width
 	}
 }
 

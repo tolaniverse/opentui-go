@@ -6,12 +6,15 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"github.com/rivo/uniseg"
 )
 
 // Cell is one emulated terminal cell.
 type Cell struct {
-	Char rune
-	BG   [3]uint8
+	Char     rune
+	Grapheme string
+	BG       [3]uint8
 	// BGSet is false when the terminal default background is in effect.
 	BGSet bool
 }
@@ -22,14 +25,16 @@ type Cell struct {
 // emulated screen, rather than searching raw output bytes, is necessary
 // because diff rendering never re-sends cells that did not change.
 type Screen struct {
-	mu      sync.Mutex
-	w, h    int
-	cells   [][]Cell
-	x, y    int
-	bg      [3]uint8
-	bgSet   bool
-	modes   map[int]bool
-	pending []byte
+	mu           sync.Mutex
+	w, h         int
+	cells        [][]Cell
+	x, y         int
+	bg           [3]uint8
+	bgSet        bool
+	modes        map[int]bool
+	pending      []byte
+	lastX, lastY int // leading cell of the last printed grapheme
+	hasLast      bool
 }
 
 // NewScreen returns a blank w×h screen.
@@ -75,7 +80,11 @@ func (s *Screen) Lines() []string {
 	for y, row := range s.cells {
 		var b strings.Builder
 		for _, c := range row {
-			b.WriteRune(c.Char)
+			if c.Grapheme != "" {
+				b.WriteString(c.Grapheme)
+			} else {
+				b.WriteRune(c.Char)
+			}
 		}
 		out[y] = strings.TrimRight(b.String(), " ")
 	}
@@ -160,16 +169,46 @@ func (s *Screen) put(r rune) {
 	switch r {
 	case '\r':
 		s.x = 0
+		s.hasLast = false
 		return
 	case '\n':
 		s.y++
+		s.hasLast = false
 		return
 	}
 	if r < 0x20 {
 		return
 	}
+	// A UTF-8 stream may split an extended grapheme across reads. When the
+	// previous cluster and this rune still form one cluster, append without
+	// advancing the cursor. This handles combining marks and emoji ZWJ joins.
+	if s.hasLast && s.lastY >= 0 && s.lastY < s.h && s.lastX >= 0 && s.lastX < s.w {
+		old := &s.cells[s.lastY][s.lastX]
+		prev := old.Grapheme
+		if prev == "" && old.Char != 0 {
+			prev = string(old.Char)
+		}
+		joined := prev + string(r)
+		g := uniseg.NewGraphemes(joined)
+		if g.Next() && g.Str() == joined {
+			before, after := uniseg.StringWidth(prev), uniseg.StringWidth(joined)
+			old.Grapheme = joined
+			if after > before && s.lastX+1 < s.w {
+				s.cells[s.lastY][s.lastX+1] = Cell{Char: ' ', BG: s.bg, BGSet: s.bgSet}
+			}
+			s.x += after - before
+			return
+		}
+	}
 	if s.y >= 0 && s.y < s.h && s.x >= 0 && s.x < s.w {
+		width := max(uniseg.StringWidth(string(r)), 1)
 		s.cells[s.y][s.x] = Cell{Char: r, BG: s.bg, BGSet: s.bgSet}
+		if width == 2 && s.x+1 < s.w {
+			s.cells[s.y][s.x+1] = Cell{Char: ' ', BG: s.bg, BGSet: s.bgSet}
+		}
+		s.lastX, s.lastY, s.hasLast = s.x, s.y, true
+		s.x += width
+		return
 	}
 	s.x++
 }
@@ -197,6 +236,7 @@ func (s *Screen) csi(params string, final byte) {
 	switch final {
 	case 'H':
 		s.y, s.x = num(0, 1)-1, num(1, 1)-1
+		s.hasLast = false
 	case 'J':
 		if num(0, 0) == 2 {
 			for y := range s.cells {

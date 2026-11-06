@@ -62,6 +62,13 @@ func encodeFrame(w ansi.Writer, current, next *Buffer, opts FrameOptions) FrameS
 
 		for x := range nextRow {
 			cell := nextRow[x]
+			if cell.Continuation {
+				if opts.Force || curRow[x] != cell {
+					curRow[x] = cell // emitted with the preceding wide grapheme
+					stats.CellsUpdated++
+				}
+				continue
+			}
 
 			if !opts.Force && curRow[x] == cell {
 				if runLength > 0 { // the run is broken by an unchanged cell
@@ -86,7 +93,11 @@ func encodeFrame(w ansi.Writer, current, next *Buffer, opts FrameOptions) FrameS
 				emitAttr(w, cell.Attr)
 			}
 
-			writeRune(w, cell.Char)
+			if cell.Grapheme != "" {
+				w.WriteString(cell.Grapheme)
+			} else {
+				writeRune(w, cell.Char)
+			}
 			runLength++
 			curRow[x] = cell // the terminal now shows this cell
 			stats.CellsUpdated++
