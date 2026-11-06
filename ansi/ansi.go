@@ -48,18 +48,15 @@ type Writer interface {
 	WriteByte(c byte) error
 }
 
-func writeInt(w Writer, n int) {
-	var tmp [20]byte
-	w.Write(strconv.AppendInt(tmp[:0], int64(n), 10))
-}
-
 // MoveTo writes CUP (cursor position). x and y are 1-based, like the terminal.
 func MoveTo(w Writer, x, y int) {
-	w.WriteString("\x1b[")
-	writeInt(w, y)
-	w.WriteByte(';')
-	writeInt(w, x)
-	w.WriteByte('H')
+	var buf [48]byte
+	out := append(buf[:0], "\x1b["...)
+	out = strconv.AppendInt(out, int64(y), 10)
+	out = append(out, ';')
+	out = strconv.AppendInt(out, int64(x), 10)
+	out = append(out, 'H')
+	w.Write(out)
 }
 
 // FgRGB writes a 24-bit "truecolor" foreground: CSI 38;2;r;g;b m.
@@ -75,23 +72,27 @@ func FgIndexed(w Writer, n uint8) { sgrIndexed(w, 38, n) }
 func BgIndexed(w Writer, n uint8) { sgrIndexed(w, 48, n) }
 
 func sgrRGB(w Writer, code int, r, g, b uint8) {
-	w.WriteString("\x1b[")
-	writeInt(w, code)
-	w.WriteString(";2;")
-	writeInt(w, int(r))
-	w.WriteByte(';')
-	writeInt(w, int(g))
-	w.WriteByte(';')
-	writeInt(w, int(b))
-	w.WriteByte('m')
+	var buf [32]byte
+	out := append(buf[:0], "\x1b["...)
+	out = strconv.AppendInt(out, int64(code), 10)
+	out = append(out, ';', '2', ';')
+	out = strconv.AppendInt(out, int64(r), 10)
+	out = append(out, ';')
+	out = strconv.AppendInt(out, int64(g), 10)
+	out = append(out, ';')
+	out = strconv.AppendInt(out, int64(b), 10)
+	out = append(out, 'm')
+	w.Write(out)
 }
 
 func sgrIndexed(w Writer, code int, n uint8) {
-	w.WriteString("\x1b[")
-	writeInt(w, code)
-	w.WriteString(";5;")
-	writeInt(w, int(n))
-	w.WriteByte('m')
+	var buf [24]byte
+	out := append(buf[:0], "\x1b["...)
+	out = strconv.AppendInt(out, int64(code), 10)
+	out = append(out, ';', '5', ';')
+	out = strconv.AppendInt(out, int64(n), 10)
+	out = append(out, 'm')
+	w.Write(out)
 }
 
 // SetTitle writes OSC 0 (window/icon title).

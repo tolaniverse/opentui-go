@@ -4,10 +4,11 @@ A pure-Go port of [OpenTUI](https://github.com/anomalyco/opentui), a library for
 
 Upstream OpenTUI pairs a Zig engine with a TypeScript API. This port reimplements both layers in Go, with no cgo and no Zig.
 
-> **Status: v0.4.0, early.** It includes mouse routing, scrolling, text selection, keyboard decoding, focus management, text input, renderable trees, Yoga-compatible flex layout, diff rendering, resize handling, and clean shutdown.
+> **Status: v0.5.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, text input, renderable trees, Yoga-compatible flex layout, diff rendering, resize handling, and clean shutdown.
 > Unix only (macOS, Linux, BSD).
 
 Ported from upstream commit [`e4ad586`](https://github.com/anomalyco/opentui/tree/e4ad5867eae1051a2c1877b08d88bbcaf12b7209).
+See [compatibility and missing features](COMPATIBILITY.md) before treating it as an upstream replacement.
 
 ## Try it
 
@@ -63,6 +64,8 @@ scripts/release-check.sh [ref]              # everything, on a clean checkout of
 
 `tools/ptycheck` is a separate module, so the library keeps no test-only dependencies. It runs every example in a pseudo-terminal, drives it with real key, paste, and mouse sequences, and checks an emulated screen, including clean exit and terminal-mode cleanup. Run `scripts/release-check.sh` before tagging; it checks only what is committed.
 
+`go test -run '^$' -bench 'Benchmark(EncodeFrame|DrawDocument)' -benchmem .` measures unchanged, one-cell, and full-frame diffs plus layout/paint of a 200-row scroll document. On an Apple M1 (Go 1.26.2, 80×24), batching ANSI numeric sequences reduced full-frame encoding from ~35.8 µs / 720 allocations to ~25.5 µs / 216 allocations per frame. These are local Go measurements, not comparisons with upstream Zig; rerun on your machine for relevant numbers.
+
 ## Roadmap
 
 | Release | Scope |
@@ -71,13 +74,13 @@ scripts/release-check.sh [ref]              # everything, on a clean checkout of
 | **v0.2.0** | Renderable tree, boxes, borders, clipping, Yoga-compatible basic layout |
 | **v0.3.0** | Keyboard decoding, focus, text input |
 | **v0.4.0** | Scrolling, selection, mouse |
-| v0.5.0 | Demo app, compatibility notes, performance pass |
+| **v0.5.0** | Focused examples, scrollbar dragging, selection auto-scroll, clipboard copy, compatibility notes, performance pass |
 
 ## Layout
 
 `Style` supports row/column directions (including reverse), grow and shrink, basis, fixed and percentage dimensions, min/max constraints, gap, padding, margins, justify/align, and absolute positioning. Layout is a pure-Go port of the supported Yoga 3.2.1 algorithm and is checked against 410 generated real-Yoga cases. It also carries OpenTUI's flex-shrink residue fix.
 
-## Known limitations (v0.4.0)
+## Known limitations (v0.5.0)
 
 - Each rune occupies one cell; wide characters (CJK, emoji) and grapheme clusters are not handled yet.
 - Truecolor is assumed; there is no terminal capability detection yet.
