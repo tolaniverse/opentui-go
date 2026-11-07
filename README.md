@@ -4,7 +4,7 @@ A pure-Go port of [OpenTUI](https://github.com/anomalyco/opentui), a library for
 
 Upstream OpenTUI pairs a Zig engine with a TypeScript API. This port reimplements both layers in Go, with no cgo and no Zig.
 
-> **Status: v0.10.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line and multiline text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering with soft wrapping, diff rendering, resize handling, and clean shutdown.
+> **Status: v0.11.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line and multiline text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering with soft wrapping, diff rendering, resize handling, and clean shutdown.
 > Unix only (macOS, Linux, BSD).
 
 Ported from upstream commit [`e4ad586`](https://github.com/anomalyco/opentui/tree/e4ad5867eae1051a2c1877b08d88bbcaf12b7209).
@@ -51,6 +51,7 @@ err = r.Run(context.Background(), nil)
 - `Textarea` is a multiline editor. Enter inserts a newline and Alt/Meta+Enter submits; arrows cross lines, and Up/Down keep the terminal-cell column; Ctrl+A/E go to the line start/end, Home/End to the buffer start/end; Backspace/Delete/Ctrl+W/K join lines at their edges. Paste keeps newlines (CRLF/CR become LF) and expands tabs to 4 spaces. `CursorPosition`/`SetCursorPosition` use a line index plus a rune offset snapped to a grapheme boundary.
 - `Textarea` selection: click places the cursor; drag, Shift+click, or Shift with any movement key selects; double-click selects a word; Super+A selects all. Typing, pasting, or any delete key replaces the selection; plain Left/Right collapse it. `SelectedText`, `SelectAll`, and `OnSelect` (called when a mouse selection ends, e.g. to copy) expose it. The wheel scrolls the view without moving the cursor (and bubbles at the ends); the next key or click brings the cursor back into view.
 - `Input` supports cursor movement, Home/End, Backspace/Delete, Ctrl+A/E/U/K/W, bracketed paste, horizontal scrolling, placeholders, length limits, and input/change/submit callbacks.
+- `Input` and `Textarea` share upstream's editing keys: word movement with Ctrl/Alt+Left/Right and Alt+B/F, word deletion with Ctrl+W, Alt/Ctrl+Backspace, Alt+D and Alt/Ctrl+Delete (word boundaries are Unicode line-break opportunities, as upstream), and Undo/Redo with Ctrl+- / Ctrl+. and Super+Z / Super+Shift+Z. Because most terminals can only send those with the kitty keyboard protocol, Ctrl+Z / Ctrl+Y (and Ctrl+Shift+Z) also work. Typing undoes by word; runs of Backspace or Delete undo together; `SetValue` clears the history, as upstream's `setText`. `Node.Undo` / `Node.Redo` do the same from code.
 - `Input` moves and deletes whole grapheme clusters, scrolls in terminal cells, and enforces MinLength/MaxLength in clusters. `Cursor`/`SetCursor` retain rune offsets for API compatibility; `SetCursor` snaps to the prior grapheme boundary.
 
 ## Mouse, scrolling, and selection
@@ -88,18 +89,19 @@ scripts/release-check.sh [ref]              # everything, on a clean checkout of
 | **v0.8.0** | Multiline `Textarea` with grapheme-aware editing, multi-line paste, and two-axis scrolling |
 | **v0.9.0** | Soft wrapping (word and char) for `Text` and `Textarea`; selection across soft wraps |
 | **v0.10.0** | `Textarea` mouse support: click, drag, double-click, Shift selection, wheel scroll; typing replaces the selection |
+| **v0.11.0** | Undo/redo and word movement/deletion in `Input` and `Textarea` |
 
 ## Layout
 
 `Style` supports row/column directions (including reverse), grow and shrink, basis, fixed and percentage dimensions, min/max constraints, gap, padding, margins, justify/align, and absolute positioning. Layout is a pure-Go port of the supported Yoga 3.2.1 algorithm and is checked against 410 generated real-Yoga cases. It also carries OpenTUI's flex-shrink residue fix.
 
-## Known limitations (v0.10.0)
+## Known limitations (v0.11.0)
 
 - `Input` is still single-line and its public cursor offsets are rune indices; editing itself uses grapheme boundaries. Terminal width calculations use `uniseg` defaults and may differ from a particular terminal's emoji width settings.
 - Truecolor is assumed; there is no terminal capability detection yet.
 - No hyperlinks, images or cursor control.
 - Clipboard copy is write-only OSC 52; there is no clipboard read and no tmux/screen passthrough wrapping yet.
-- `Textarea` has no undo/redo or triple-click line selection; holding a drag still past the edge does not keep scrolling (each pointer move scrolls one row). Without wrapping, all lines share one horizontal scroll offset. Ctrl+A/E and Home/End act on logical lines and the buffer, not visual rows.
+- `Textarea` has no triple-click line selection; holding a drag still past the edge does not keep scrolling (each pointer move scrolls one row). Without wrapping, all lines share one horizontal scroll offset. Ctrl+A/E and Home/End act on logical lines and the buffer, not visual rows.
 - No flex wrapping, align-content, baseline alignment, aspect ratio, percentage padding/margins, or auto margins yet.
 - `Text` supports plain text only; styled spans arrive in a later release. Word-mode line breaking follows Unicode UAX #14 defaults via `uniseg`, without hyphenation or language-specific tailoring.
 

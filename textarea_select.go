@@ -54,20 +54,16 @@ func (s *textareaState) selectedText() string {
 	return b.String()
 }
 
-// deleteSelection removes the selected text, leaving the cursor where it
-// began, and reports whether anything was removed. It does not notify.
+// deleteSelection removes the selected text as one undo step, leaving the
+// cursor where it began, and reports whether anything was removed. It
+// does not notify.
 func (s *textareaState) deleteSelection() bool {
 	r, ok := s.selectionRange()
 	s.hasAnchor = false
 	if !ok {
 		return false
 	}
-	joined := append(append([]rune(nil), s.lines[r.sl][:r.sc]...), s.lines[r.el][r.ec:]...)
-	s.lines = append(s.lines[:r.sl+1], s.lines[r.el+1:]...)
-	s.lines[r.sl] = joined
-	// Joining can merge clusters across the cut (a leading combining mark).
-	s.line, s.col, s.goal = r.sl, inputFloor(joined, r.sc), -1
-	return true
+	return s.replaceRange(textPos{r.sl, r.sc}, textPos{r.el, r.ec}, "", editOther)
 }
 
 // SelectedText returns a Textarea's selected text ("\n" between lines), or
@@ -95,8 +91,10 @@ func isMovementKey(k *KeyEvent) bool {
 	switch k.Name {
 	case "left", "right", "up", "down", "home", "end":
 		return true
-	case "a", "e", "b", "f":
+	case "a", "e":
 		return k.Ctrl
+	case "b", "f":
+		return k.Ctrl || k.Alt || k.Meta
 	}
 	return false
 }
@@ -105,7 +103,9 @@ func isDeleteKey(k *KeyEvent) bool {
 	switch k.Name {
 	case "backspace", "delete":
 		return true
-	case "d", "w", "k", "u":
+	case "d":
+		return k.Ctrl || k.Alt || k.Meta
+	case "w", "k", "u":
 		return k.Ctrl
 	}
 	return false
@@ -123,6 +123,14 @@ func (n *Node) handleTextareaKey(key *KeyEvent) {
 	s.follow = true
 	sel, selected := s.selectionRange()
 	switch {
+	case isUndoKey(key) || isRedoKey(key):
+		if isUndoKey(key) {
+			n.Undo()
+		} else {
+			n.Redo()
+		}
+		key.PreventDefault() // also when there is nothing to undo
+		return
 	case key.Super && key.Name == "a":
 		n.SelectAll()
 		key.PreventDefault()
@@ -133,11 +141,11 @@ func (n *Node) handleTextareaKey(key *KeyEvent) {
 		}
 		n.editTextareaKey(key)
 		return
-	case isMovementKey(key) && selected && (key.Name == "left" || key.Name == "b"):
+	case isMovementKey(key) && selected && !isWordLeftKey(key) && (key.Name == "left" || key.Name == "b"):
 		s.line, s.col, s.hasAnchor, s.goal = sel.sl, sel.sc, false, -1
 		key.PreventDefault()
 		return
-	case isMovementKey(key) && selected && (key.Name == "right" || key.Name == "f"):
+	case isMovementKey(key) && selected && !isWordRightKey(key) && (key.Name == "right" || key.Name == "f"):
 		s.line, s.col, s.hasAnchor, s.goal = sel.el, sel.ec, false, -1
 		key.PreventDefault()
 		return

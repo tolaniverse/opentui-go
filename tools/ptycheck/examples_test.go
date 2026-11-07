@@ -301,3 +301,46 @@ func TestTextareaMouse(t *testing.T) {
 	s.waitText("Ln 22, Col 6")
 	s.exitCleanly()
 }
+
+func TestTextareaUndoAndWords(t *testing.T) {
+	s := start(t, buildExample(t, "textarea"), 80, 16)
+	s.waitText("Ln 1, Col 1 · 1 line(s)")
+	s.send("alpha beta gamma")
+	s.waitText("Ln 1, Col 17")
+	s.send("\x1b[1;5D") // Ctrl+Left: start of "gamma"
+	s.waitText("Ln 1, Col 12")
+	s.send("\x1bb") // Alt+B: start of "beta"
+	s.waitText("Ln 1, Col 7")
+	s.send("\x1bd") // Alt+D: delete "beta "
+	s.waitText("alpha gamma")
+	s.send("\x1a") // Ctrl+Z: undo the word delete
+	s.waitText("alpha beta gamma")
+	s.send("\x1a\x1a") // undo " gamma", then " beta"
+	s.waitFor("typing undone by word", func() bool {
+		_, _, gamma := s.screen.Find("gamma")
+		_, _, beta := s.screen.Find("beta")
+		_, _, alpha := s.screen.Find("alpha")
+		return alpha && !beta && !gamma
+	})
+	s.waitText("Ln 1, Col 6")
+	s.send("\x19") // Ctrl+Y: redo " beta"
+	s.waitText("alpha beta")
+	s.waitText("Ln 1, Col 11")
+	s.exitCleanly()
+}
+
+func TestInputUndo(t *testing.T) {
+	s := start(t, buildExample(t, "input"), 90, 24)
+	s.waitText("Name — Enter moves to email")
+	s.send("Ada King")
+	s.waitText("│ Ada King")
+	s.send("\x17") // Ctrl+W deletes "King"
+	s.waitFor("word deleted", func() bool { _, _, ok := s.screen.Find("King"); return !ok })
+	s.send("\x1a") // Ctrl+Z restores it
+	s.waitText("│ Ada King")
+	s.send("\r")
+	s.waitText("Name saved — enter your email")
+	s.send("a@b.c\r")
+	s.waitText("Submitted: Ada King <a@b.c>")
+	s.exitCleanly()
+}

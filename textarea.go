@@ -49,6 +49,7 @@ type textareaState struct {
 	// goal is the terminal-cell column Up/Down aim for, so moving through
 	// a short line does not lose the column. -1 means "use the cursor's".
 	goal    int
+	history textHistory
 	scrollX int // first visible cell column (WrapNone only)
 	// topLine/topRow is the first visible visual row: a logical line and a
 	// row within it (always 0 for WrapNone).
@@ -166,6 +167,7 @@ func (n *Node) setTextareaValue(value string, notify bool) {
 	s.col = len(s.lines[s.line])
 	s.goal = -1
 	s.hasAnchor, s.follow = false, true
+	s.history = textHistory{} // as upstream setText: a new value starts a new history
 	if notify {
 		n.notifyTextarea()
 	}
@@ -203,49 +205,22 @@ func (n *Node) LineCount() int {
 	return len(n.textarea.lines)
 }
 
-func (n *Node) insertTextarea(text string) bool {
+// insertTextarea inserts text at the cursor, replacing the selection
+// (typing or pasting over it) as one undo step.
+func (n *Node) insertTextarea(text string, kind editKind) bool {
 	s := n.textarea
 	text = sanitizeTextarea(text)
 	if text == "" {
 		return false
 	}
-	s.deleteSelection() // typing or pasting replaces the selection
-	s.follow = true
-	cur := s.lines[s.line]
-	if !strings.Contains(text, "\n") {
-		// Typing: edit one line instead of rebuilding the line list.
-		insert := []rune(text)
-		line := make([]rune, 0, len(cur)+len(insert))
-		line = append(append(append(line, cur[:s.col]...), insert...), cur[s.col:]...)
-		s.lines[s.line] = line
-		s.col = inputCeil(line, s.col+len(insert))
-		s.goal = -1
-		n.notifyTextarea()
-		return true
+	at := textPos{s.line, s.col}
+	to := at
+	if sel, ok := s.selectionRange(); ok {
+		at, to, kind = textPos{sel.sl, sel.sc}, textPos{sel.el, sel.ec}, editOther
 	}
-	parts := strings.Split(text, "\n")
-	before := append([]rune(nil), cur[:s.col]...)
-	after := append([]rune(nil), cur[s.col:]...)
-
-	added := make([][]rune, len(parts))
-	for i, p := range parts {
-		added[i] = []rune(p)
+	if !s.replaceRange(at, to, text, kind) {
+		return false
 	}
-	added[0] = append(before, added[0]...)
-	last := len(added) - 1
-	col := len(added[last])
-	added[last] = append(added[last], after...)
-
-	lines := make([][]rune, 0, len(s.lines)+last)
-	lines = append(lines, s.lines[:s.line]...)
-	lines = append(lines, added...)
-	lines = append(lines, s.lines[s.line+1:]...)
-	s.lines = lines
-	s.line += last
-	// Inserted combining marks can merge with the following text, so the
-	// end of the insertion may be inside a cluster: move past it.
-	s.col = inputCeil(s.lines[s.line], col)
-	s.goal = -1
 	n.notifyTextarea()
 	return true
 }
@@ -272,16 +247,6 @@ func (n *Node) submitTextarea() bool {
 		fn(n.Value())
 	}
 	return true
-}
-
-// joinWithNext merges line i+1 into line i, keeping the cursor at the join.
-func (s *textareaState) joinWithNext(i int) {
-	s.line, s.col = i, len(s.lines[i])
-	s.lines[i] = append(s.lines[i], s.lines[i+1]...)
-	s.lines = append(s.lines[:i+1], s.lines[i+2:]...)
-	// The join can create a cluster across the old boundary (a leading
-	// combining mark), so keep the cursor on a boundary.
-	s.col = inputFloor(s.lines[i], s.col)
 }
 
 // cellColumn is the terminal-cell column of a rune offset in a line.
@@ -321,15 +286,42 @@ func (n *Node) editTextareaKey(key *KeyEvent) {
 	edited, handled := false, true
 	vertical := false
 	meta := key.Alt || key.Meta
+	here := textPos{s.line, s.col}
+	lastLine := len(s.lines) - 1
+	lineEnd := func(i int) textPos { return textPos{i, len(s.lines[i])} }
+	// cut deletes [a, b); an empty range means there is nothing to do.
+	cut := func(a, b textPos, kind editKind) {
+		edited = s.replaceRange(a, b, "", kind)
+		handled = edited
+	}
 
 	switch {
 	case (key.Name == "return" || key.Name == "kpenter") && meta:
 		handled = n.submitTextarea()
 	case key.Name == "return" || key.Name == "kpenter" || key.Name == "linefeed":
-		handled = n.insertTextarea("\n")
+		handled = n.insertTextarea("\n", editOther)
 	case key.Name == "up", key.Name == "down":
 		vertical = true
 		n.moveVertical(key.Name == "up")
+	case isWordLeftKey(key):
+		switch {
+		case s.col > 0:
+			s.col = prevWordBoundary(line, s.col)
+		case s.line > 0:
+			s.line--
+			s.col = len(s.lines[s.line])
+		default:
+			handled = false
+		}
+	case isWordRightKey(key):
+		switch {
+		case s.col < len(line):
+			s.col = nextWordBoundary(line, s.col)
+		case s.line < lastLine:
+			s.line, s.col = s.line+1, 0
+		default:
+			handled = false
+		}
 	case key.Name == "left" || (key.Ctrl && key.Name == "b"):
 		switch {
 		case s.col > 0:
@@ -344,7 +336,7 @@ func (n *Node) editTextareaKey(key *KeyEvent) {
 		switch {
 		case s.col < len(line):
 			s.col = inputNext(line, s.col)
-		case s.line < len(s.lines)-1:
+		case s.line < lastLine:
 			s.line++
 			s.col = 0
 		default:
@@ -353,71 +345,54 @@ func (n *Node) editTextareaKey(key *KeyEvent) {
 	case key.Name == "home":
 		s.line, s.col = 0, 0
 	case key.Name == "end":
-		s.line = len(s.lines) - 1
+		s.line = lastLine
 		s.col = len(s.lines[s.line])
 	case key.Ctrl && key.Name == "a":
 		s.col = 0
 	case key.Ctrl && key.Name == "e":
 		s.col = len(line)
+	case isDeleteWordBackKey(key):
+		if s.col == 0 && s.line > 0 {
+			cut(lineEnd(s.line-1), here, editOther)
+		} else {
+			cut(textPos{s.line, prevWordBoundary(line, s.col)}, here, editOther)
+		}
+	case isDeleteWordForwardKey(key):
+		if s.col == len(line) && s.line < lastLine {
+			cut(here, textPos{s.line + 1, 0}, editOther)
+		} else {
+			cut(here, textPos{s.line, nextWordBoundary(line, s.col)}, editOther)
+		}
 	case key.Name == "backspace":
 		switch {
 		case s.col > 0:
-			start := inputPrev(line, s.col)
-			s.lines[s.line] = append(line[:start], line[s.col:]...)
-			s.col = start
-			edited = true
+			cut(textPos{s.line, inputPrev(line, s.col)}, here, editBack)
 		case s.line > 0:
-			s.joinWithNext(s.line - 1)
-			edited = true
+			cut(lineEnd(s.line-1), here, editBack)
 		default:
 			handled = false
 		}
 	case key.Name == "delete" || (key.Ctrl && key.Name == "d"):
 		switch {
 		case s.col < len(line):
-			s.lines[s.line] = append(line[:s.col], line[inputNext(line, s.col):]...)
-			edited = true
-		case s.line < len(s.lines)-1:
-			s.joinWithNext(s.line)
-			edited = true
+			cut(here, textPos{s.line, inputNext(line, s.col)}, editDelete)
+		case s.line < lastLine:
+			cut(here, textPos{s.line + 1, 0}, editDelete)
 		default:
 			handled = false
 		}
 	case key.Ctrl && key.Name == "k":
-		switch {
-		case s.col < len(line):
-			s.lines[s.line] = append([]rune(nil), line[:s.col]...)
-			edited = true
-		case s.line < len(s.lines)-1:
-			s.joinWithNext(s.line)
-			edited = true
-		default:
+		if s.col < len(line) {
+			cut(here, lineEnd(s.line), editOther)
+		} else if s.line < lastLine {
+			cut(here, textPos{s.line + 1, 0}, editOther)
+		} else {
 			handled = false
 		}
 	case key.Ctrl && key.Name == "u":
-		if s.col == 0 {
-			handled = false
-			break
-		}
-		s.lines[s.line] = append([]rune(nil), line[s.col:]...)
-		s.col = 0
-		edited = true
-	case key.Ctrl && key.Name == "w":
-		if s.col == 0 {
-			if s.line == 0 {
-				handled = false
-				break
-			}
-			s.joinWithNext(s.line - 1)
-			edited = true
-			break
-		}
-		start := wordStartBefore(line, s.col)
-		s.lines[s.line] = append(line[:start], line[s.col:]...)
-		s.col = start
-		edited = true
-	case !key.Ctrl && !meta && printableSequence(key.Sequence):
-		handled = n.insertTextarea(key.Sequence)
+		cut(textPos{s.line, 0}, here, editOther)
+	case !key.Ctrl && !meta && !key.Super && printableSequence(key.Sequence):
+		handled = n.insertTextarea(key.Sequence, editType)
 	default:
 		handled = false
 	}
@@ -432,10 +407,6 @@ func (n *Node) editTextareaKey(key *KeyEvent) {
 	}
 }
 
-// rowsOf returns the visual rows of line i at the last painted wrap width.
-// Without wrapping it is one row whose width is left 0: callers only need
-// the offsets, and measuring every visible line would cost a segmentation
-// pass per line per frame.
 // clampTop keeps the scroll anchor inside the document after edits.
 func (s *textareaState) clampTop() {
 	s.topLine = min(max(s.topLine, 0), len(s.lines)-1)

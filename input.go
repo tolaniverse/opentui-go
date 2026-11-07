@@ -36,6 +36,7 @@ type inputState struct {
 	minLength   int
 	maxLength   int
 	committed   string
+	history     inputHistory
 	opts        InputOptions
 }
 
@@ -122,6 +123,7 @@ func (n *Node) setInputValue(value string, notify bool) {
 	}
 	n.input.value = runes
 	n.input.cursor = len(runes)
+	n.input.history = inputHistory{} // as upstream setText: a new value starts a new history
 	if notify && n.input.opts.OnInput != nil {
 		n.input.opts.OnInput(string(runes))
 	}
@@ -147,11 +149,17 @@ func (n *Node) SetCursor(offset int) {
 // value changed.
 func (n *Node) InsertText(text string) bool {
 	if n.textarea != nil {
-		return n.insertTextarea(text)
+		return n.insertTextarea(text, editOther)
 	}
 	if n.input == nil {
 		return false
 	}
+	return n.insertInput(text, editOther)
+}
+
+// insertInput inserts sanitized text at the cursor as one undo step of
+// kind (typed keys merge into words).
+func (n *Node) insertInput(text string, kind editKind) bool {
 	text = strings.NewReplacer("\r", "", "\n", "").Replace(text)
 	if text == "" {
 		return false
@@ -178,12 +186,14 @@ func (n *Node) InsertText(text string) bool {
 	if len(insert) == 0 {
 		return false
 	}
+	n.inputCheckpoint(kind, string(insert))
 	value := make([]rune, 0, len(n.input.value)+len(insert))
 	value = append(value, n.input.value[:i]...)
 	value = append(value, insert...)
 	value = append(value, n.input.value[i:]...)
 	n.input.value = value
 	n.input.cursor = inputCeil(value, i+len(insert))
+	n.inputEdited()
 	n.notifyInput()
 	return true
 }
@@ -228,47 +238,49 @@ func (n *Node) handleInputKey(key *KeyEvent) {
 	}
 	s := n.input
 	handled := true
+	// cut deletes [a, b) as one undo step; an empty range does nothing.
+	cut := func(a, b int, kind editKind) {
+		if a >= b {
+			handled = false
+			return
+		}
+		n.inputCheckpoint(kind, "")
+		s.value = append(s.value[:a], s.value[b:]...)
+		s.cursor = inputFloor(s.value, a)
+		n.inputEdited()
+		n.notifyInput()
+	}
+	move := func(to int) {
+		if to == s.cursor {
+			handled = false
+		}
+		s.cursor = to
+	}
 	switch {
+	case isUndoKey(key):
+		n.Undo()
+	case isRedoKey(key):
+		n.Redo()
+	case isWordLeftKey(key):
+		move(prevWordBoundary(s.value, s.cursor))
+	case isWordRightKey(key):
+		move(nextWordBoundary(s.value, s.cursor))
+	case isDeleteWordBackKey(key):
+		cut(prevWordBoundary(s.value, s.cursor), s.cursor, editOther)
+	case isDeleteWordForwardKey(key):
+		cut(s.cursor, nextWordBoundary(s.value, s.cursor), editOther)
 	case key.Ctrl && key.Name == "a":
 		s.cursor = 0
 	case key.Ctrl && key.Name == "e":
 		s.cursor = len(s.value)
 	case key.Ctrl && key.Name == "u":
-		if s.cursor == 0 {
-			handled = false
-			break
-		}
-		s.value = append([]rune(nil), s.value[s.cursor:]...)
-		s.cursor = 0
-		n.notifyInput()
+		cut(0, s.cursor, editOther)
 	case key.Ctrl && key.Name == "k":
-		if s.cursor == len(s.value) {
-			handled = false
-			break
-		}
-		s.value = append([]rune(nil), s.value[:s.cursor]...)
-		n.notifyInput()
-	case key.Ctrl && key.Name == "w":
-		start := wordStartBefore(s.value, s.cursor)
-		if start == s.cursor {
-			handled = false
-			break
-		}
-		s.value = append(s.value[:start], s.value[s.cursor:]...)
-		s.cursor = start
-		n.notifyInput()
-	case key.Name == "left":
-		if s.cursor > 0 {
-			s.cursor = inputPrev(s.value, s.cursor)
-		} else {
-			handled = false
-		}
-	case key.Name == "right":
-		if s.cursor < len(s.value) {
-			s.cursor = inputNext(s.value, s.cursor)
-		} else {
-			handled = false
-		}
+		cut(s.cursor, len(s.value), editOther)
+	case key.Name == "left" || (key.Ctrl && key.Name == "b"):
+		move(max(inputPrev(s.value, s.cursor), 0))
+	case key.Name == "right" || (key.Ctrl && key.Name == "f"):
+		move(min(inputNext(s.value, s.cursor), len(s.value)))
 	case key.Name == "home":
 		s.cursor = 0
 	case key.Name == "end":
@@ -278,21 +290,17 @@ func (n *Node) handleInputKey(key *KeyEvent) {
 			handled = false
 			break
 		}
-		start := inputPrev(s.value, s.cursor)
-		s.value = append(s.value[:start], s.value[s.cursor:]...)
-		s.cursor = start
-		n.notifyInput()
-	case key.Name == "delete":
+		cut(inputPrev(s.value, s.cursor), s.cursor, editBack)
+	case key.Name == "delete" || (key.Ctrl && key.Name == "d"):
 		if s.cursor == len(s.value) {
 			handled = false
 			break
 		}
-		s.value = append(s.value[:s.cursor], s.value[inputNext(s.value, s.cursor):]...)
-		n.notifyInput()
+		cut(s.cursor, inputNext(s.value, s.cursor), editDelete)
 	case key.Name == "return" || key.Name == "kpenter" || key.Name == "linefeed":
 		handled = n.Submit()
-	case !key.Ctrl && !key.Alt && printableSequence(key.Sequence):
-		handled = n.InsertText(key.Sequence)
+	case !key.Ctrl && !key.Alt && !key.Meta && !key.Super && printableSequence(key.Sequence):
+		handled = n.insertInput(key.Sequence, editType)
 	default:
 		handled = false
 	}
@@ -433,23 +441,4 @@ func truncateClusters(value string, limit int) string {
 		count++
 	}
 	return value[:end]
-}
-
-// wordStartBefore returns where Ctrl+W deletes back to from offset: past
-// spaces, then past non-spaces, by whole grapheme clusters. It segments
-// the value once; stepping with inputPrev re-segments it per step, which
-// made Ctrl+W quadratic on long lines.
-func wordStartBefore(value []rune, offset int) int {
-	offsets := inputOffsets(value)
-	i := len(offsets) - 1
-	for i > 0 && offsets[i] > offset {
-		i--
-	}
-	for i > 0 && unicode.IsSpace(value[offsets[i-1]]) {
-		i--
-	}
-	for i > 0 && !unicode.IsSpace(value[offsets[i-1]]) {
-		i--
-	}
-	return offsets[i]
 }

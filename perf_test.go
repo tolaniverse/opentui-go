@@ -145,7 +145,7 @@ func BenchmarkDrawWrappedDocument(b *testing.B) {
 }
 
 // BenchmarkCtrlWLongLine deletes words from the end of a 2,500-cluster
-// non-ASCII line, which was quadratic before wordStartBefore.
+// non-ASCII line; stepping by inputPrev made this quadratic in v0.9.
 func BenchmarkCtrlWLongLine(b *testing.B) {
 	line := strings.Repeat("界界界界 ", 500)
 	b.ReportAllocs()
