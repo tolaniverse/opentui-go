@@ -146,3 +146,47 @@ func TestMouse(t *testing.T) {
 	}
 	s.exitCleanly()
 }
+
+func TestTextarea(t *testing.T) {
+	s := start(t, buildExample(t, "textarea"), 80, 16)
+	s.waitText("Ln 1, Col 1 · 1 line(s)")
+
+	s.send("first")
+	s.send("\r")
+	s.send("second")
+	s.waitText("Ln 2, Col 7 · 2 line(s)")
+	_, top, ok := s.screen.Find("first")
+	if _, below, ok2 := s.screen.Find("second"); !ok || !ok2 || below != top+1 {
+		t.Fatalf("lines not stacked: first ok=%v second ok=%v", ok, ok2)
+	}
+
+	// Up keeps the column (clamped to "first"), Backspace at a line start
+	// joins lines.
+	s.send("\x1b[A")
+	s.waitText("Ln 1, Col 6")
+	s.send("\x1b[B\x01\x7f") // down, Ctrl+A, Backspace
+	s.waitText("firstsecond")
+	s.waitText("Ln 1, Col 6 · 1 line(s)")
+
+	// Multi-line bracketed paste with CRLF line endings and an emoji.
+	s.send("\x05\x1b[200~\r\nA👩🏽‍💻B\r\nlast\x1b[201~")
+	s.waitText("Ln 3, Col 5 · 3 line(s)")
+	s.waitText("A👩🏽‍💻B")
+	s.send("\x1b[A\x05\x1b[D\x7f") // up, Ctrl+E, left, Backspace: removes the emoji
+	s.waitText("Ln 2, Col 2 · 3 line(s)")
+	if _, _, ok := s.screen.Find("👩🏽‍💻"); ok {
+		t.Fatal("emoji cluster not deleted as one unit")
+	}
+
+	// Enough lines to scroll: the cursor's line stays visible.
+	s.send("\x1b[F" + strings.Repeat("\rmore", 20))
+	s.waitText("Ln 23, Col 5 · 23 line(s)")
+	s.waitFor("view scrolled to the last line", func() bool {
+		_, _, gone := s.screen.Find("firstsecond")
+		return !gone
+	})
+
+	s.send("\x1b\r") // Alt+Enter
+	s.waitText("Submitted 23 line(s)")
+	s.exitCleanly()
+}

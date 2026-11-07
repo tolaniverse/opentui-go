@@ -14,7 +14,9 @@ import (
 type Cell struct {
 	Char     rune
 	Grapheme string
-	BG       [3]uint8
+	// Cont marks the trailing cell(s) of a wide glyph; Lines skips them.
+	Cont bool
+	BG   [3]uint8
 	// BGSet is false when the terminal default background is in effect.
 	BGSet bool
 }
@@ -80,6 +82,9 @@ func (s *Screen) Lines() []string {
 	for y, row := range s.cells {
 		var b strings.Builder
 		for _, c := range row {
+			if c.Cont {
+				continue
+			}
 			if c.Grapheme != "" {
 				b.WriteString(c.Grapheme)
 			} else {
@@ -194,7 +199,7 @@ func (s *Screen) put(r rune) {
 			before, after := uniseg.StringWidth(prev), uniseg.StringWidth(joined)
 			old.Grapheme = joined
 			if after > before && s.lastX+1 < s.w {
-				s.cells[s.lastY][s.lastX+1] = Cell{Char: ' ', BG: s.bg, BGSet: s.bgSet}
+				s.cells[s.lastY][s.lastX+1] = Cell{Char: ' ', Cont: true, BG: s.bg, BGSet: s.bgSet}
 			}
 			s.x += after - before
 			return
@@ -204,7 +209,7 @@ func (s *Screen) put(r rune) {
 		width := max(uniseg.StringWidth(string(r)), 1)
 		s.cells[s.y][s.x] = Cell{Char: r, BG: s.bg, BGSet: s.bgSet}
 		if width == 2 && s.x+1 < s.w {
-			s.cells[s.y][s.x+1] = Cell{Char: ' ', BG: s.bg, BGSet: s.bgSet}
+			s.cells[s.y][s.x+1] = Cell{Char: ' ', Cont: true, BG: s.bg, BGSet: s.bgSet}
 		}
 		s.lastX, s.lastY, s.hasLast = s.x, s.y, true
 		s.x += width

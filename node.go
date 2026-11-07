@@ -29,6 +29,7 @@ type Node struct {
 	paintAfter          func(b *Buffer, n *Node) // draws over children
 	text                *textState               // set by Text
 	input               *inputState              // set by Input
+	textarea            *textareaState           // set by Textarea
 	keyHandler          func(*KeyEvent)          // control default, set by Input
 	pasteHandler        func(*PasteEvent)
 	userKeyHandler      func(*KeyEvent)

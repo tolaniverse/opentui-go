@@ -88,3 +88,32 @@ func BenchmarkDrawDocument(b *testing.B) {
 		Draw(root, buf)
 	}
 }
+
+// BenchmarkTextareaTypeAndDraw is one keystroke plus a full frame on a
+// 2,000-line document, cursor at the end.
+func BenchmarkTextareaTypeAndDraw(b *testing.B) {
+	for _, kind := range []string{"ascii", "unicode"} {
+		b.Run(kind, func(b *testing.B) {
+			line := "The quick brown fox jumps over the lazy dog"
+			if kind == "unicode" {
+				line = "界é quick brown 👩🏽‍💻 jumps over the lazy dog"
+			}
+			n := Textarea(TextareaOptions{
+				Value: strings.Repeat(line+"\n", 2000),
+				Style: Style{Width: Cells(80), Height: Cells(24)},
+			})
+			root := NewNode(Style{AlignItems: AlignStart}, n)
+			r := testRenderer(root)
+			r.Focus(n)
+			buf := NewBuffer(80, 24)
+			keys := []*KeyEvent{press("x", "x"), press("backspace", "\x7f")}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				k := *keys[i%2]
+				n.keyHandler(&k)
+				Draw(root, buf)
+			}
+		})
+	}
+}

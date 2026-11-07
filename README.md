@@ -4,7 +4,7 @@ A pure-Go port of [OpenTUI](https://github.com/anomalyco/opentui), a library for
 
 Upstream OpenTUI pairs a Zig engine with a TypeScript API. This port reimplements both layers in Go, with no cgo and no Zig.
 
-> **Status: v0.7.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering, diff rendering, resize handling, and clean shutdown.
+> **Status: v0.8.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line and multiline text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering, diff rendering, resize handling, and clean shutdown.
 > Unix only (macOS, Linux, BSD).
 
 Ported from upstream commit [`e4ad586`](https://github.com/anomalyco/opentui/tree/e4ad5867eae1051a2c1877b08d88bbcaf12b7209).
@@ -22,6 +22,7 @@ Each example focuses on one part of the library:
 | `go run ./examples/document` | `ScrollBox` (wheel, keys, draggable scrollbar), selection with auto-scroll, clipboard copy |
 | `go run ./examples/mouse` | Hover, clicks with bubbling, drag-and-drop between zones |
 | `go run ./examples/unicode` | Wide characters, combining marks, emoji grapheme clusters |
+| `go run ./examples/textarea` | Multiline editing, multi-line paste, cursor-following scroll, submit |
 
 Press Ctrl+C to quit; the terminal is restored.
 
@@ -46,6 +47,7 @@ err = r.Run(context.Background(), nil)
 - `KeyEvent` reports printable keys, controls, arrows, function keys, modifiers, and press/repeat/release events from traditional terminal sequences and CSI-u/Kitty input.
 - `Renderer.SetKeyHandler` receives keys before the focused node. `PreventDefault` suppresses built-in Tab and Ctrl+C behavior; `StopPropagation` stops focused-node delivery.
 - `Renderer.Focus`, `Blur`, `Focused`, and `FocusNext` manage focus. Tab and Shift+Tab traverse visible focusable nodes in depth-first order and wrap.
+- `Textarea` is a multiline editor. Enter inserts a newline and Alt/Meta+Enter submits; arrows cross lines, and Up/Down keep the terminal-cell column; Ctrl+A/E go to the line start/end, Home/End to the buffer start/end; Backspace/Delete/Ctrl+W/K join lines at their edges. Paste keeps newlines (CRLF/CR become LF) and expands tabs to 4 spaces. `CursorPosition`/`SetCursorPosition` use a line index plus a rune offset snapped to a grapheme boundary.
 - `Input` supports cursor movement, Home/End, Backspace/Delete, Ctrl+A/E/U/K/W, bracketed paste, horizontal scrolling, placeholders, length limits, and input/change/submit callbacks.
 - `Input` moves and deletes whole grapheme clusters, scrolls in terminal cells, and enforces MinLength/MaxLength in clusters. `Cursor`/`SetCursor` retain rune offsets for API compatibility; `SetCursor` snaps to the prior grapheme boundary.
 
@@ -80,18 +82,19 @@ scripts/release-check.sh [ref]              # everything, on a clean checkout of
 | **v0.5.0** | Focused examples, scrollbar dragging, selection auto-scroll, clipboard copy, compatibility notes, performance pass |
 | **v0.6.0** | Grapheme-aware `Text` measurement, painting, clipping, selection, and frame diff; Unicode example |
 | **v0.7.0** | Grapheme-aware `Input` navigation, editing, limits, and horizontal scrolling |
+| **v0.8.0** | Multiline `Textarea` with grapheme-aware editing, multi-line paste, and two-axis scrolling |
 
 ## Layout
 
 `Style` supports row/column directions (including reverse), grow and shrink, basis, fixed and percentage dimensions, min/max constraints, gap, padding, margins, justify/align, and absolute positioning. Layout is a pure-Go port of the supported Yoga 3.2.1 algorithm and is checked against 410 generated real-Yoga cases. It also carries OpenTUI's flex-shrink residue fix.
 
-## Known limitations (v0.7.0)
+## Known limitations (v0.8.0)
 
 - `Input` is still single-line and its public cursor offsets are rune indices; editing itself uses grapheme boundaries. Terminal width calculations use `uniseg` defaults and may differ from a particular terminal's emoji width settings.
 - Truecolor is assumed; there is no terminal capability detection yet.
 - No hyperlinks, images or cursor control.
 - Clipboard copy is write-only OSC 52; there is no clipboard read and no tmux/screen passthrough wrapping yet.
-- Input remains single-line; multiline editing is not implemented yet.
+- `Textarea` has no soft wrapping, selection, undo/redo, mouse cursor placement, or wheel scrolling yet; all lines share one horizontal scroll offset.
 - No flex wrapping, align-content, baseline alignment, aspect ratio, percentage padding/margins, or auto margins yet.
 - `Text` does not wrap and supports plain text only; styled spans arrive in a later release.
 

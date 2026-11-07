@@ -87,8 +87,12 @@ func Input(o InputOptions) *Node {
 	return n
 }
 
-// Value returns an Input node's text, or "" for other node types.
+// Value returns an Input or Textarea node's text (Textarea lines are joined
+// with "\n"), or "" for other node types.
 func (n *Node) Value() string {
+	if n.textarea != nil {
+		return n.textarea.value()
+	}
 	if n.input == nil {
 		return ""
 	}
@@ -98,7 +102,14 @@ func (n *Node) Value() string {
 // SetValue replaces an Input node's text, strips newlines, enforces MaxLength
 // in whole grapheme clusters,
 // moves the cursor to the end, and invokes OnInput when the value changes.
-func (n *Node) SetValue(value string) { n.setInputValue(value, true) }
+// On a Textarea it keeps newlines, normalizes line endings, and expands tabs.
+func (n *Node) SetValue(value string) {
+	if n.textarea != nil {
+		n.setTextareaValue(value, true)
+		return
+	}
+	n.setInputValue(value, true)
+}
 
 func (n *Node) setInputValue(value string, notify bool) {
 	if n.input == nil {
@@ -135,6 +146,9 @@ func (n *Node) SetCursor(offset int) {
 // InsertText inserts sanitized text at the cursor. It reports whether the
 // value changed.
 func (n *Node) InsertText(text string) bool {
+	if n.textarea != nil {
+		return n.insertTextarea(text)
+	}
 	if n.input == nil {
 		return false
 	}
@@ -176,6 +190,9 @@ func (n *Node) InsertText(text string) bool {
 
 // Submit invokes OnChange if needed and then OnSubmit when MinLength is met.
 func (n *Node) Submit() bool {
+	if n.textarea != nil {
+		return n.submitTextarea()
+	}
 	if n.input == nil || len(inputOffsets(n.input.value))-1 < n.input.minLength {
 		return false
 	}
