@@ -4,7 +4,6 @@
 // TERM, COLORTERM, and NO_COLOR; Options.Color can force a mode.
 //
 //	go run ./examples/color
-//
 package main
 
 import (
