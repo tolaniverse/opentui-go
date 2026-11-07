@@ -4,7 +4,7 @@ A pure-Go port of [OpenTUI](https://github.com/anomalyco/opentui), a library for
 
 Upstream OpenTUI pairs a Zig engine with a TypeScript API. This port reimplements both layers in Go, with no cgo and no Zig.
 
-> **Status: v0.13.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line and multiline text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering with soft wrapping, diff rendering, resize handling, and clean shutdown.
+> **Status: v0.14.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line and multiline text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering with soft wrapping, diff rendering, resize handling, and clean shutdown.
 > Unix only (macOS, Linux, BSD).
 
 Ported from upstream commit [`e4ad586`](https://github.com/anomalyco/opentui/tree/e4ad5867eae1051a2c1877b08d88bbcaf12b7209).
@@ -26,6 +26,7 @@ Each example focuses on one part of the library:
 | `go run ./examples/wrap` | Word-wrapped text that reflows on resize, a wrapping editor, selection across soft wraps |
 | `go run ./examples/color` | Detected color mode (truecolor, 256, 16, or none) |
 | `go run ./examples/styled` | Rich text: bold, italic, underlined and colored spans, an OSC 8 hyperlink |
+| `go run ./examples/select` | A `Select` list with descriptions, keyboard/mouse/wheel navigation, and a filter field |
 
 Press Ctrl+C to quit; the terminal is restored.
 
@@ -63,6 +64,7 @@ err = r.Run(context.Background(), nil)
 - Dragging selectable `Text` creates a renderer-owned selection. Double-click selects a word and triple-click selects a line. Dragging past a `ScrollBox` edge auto-scrolls it, faster the further out the pointer is.
 - `Renderer.CopyToClipboard` sends text to the terminal's clipboard with OSC 52, so it works over SSH. Terminals may disable or size-limit OSC 52 and never confirm it.
 - `Text` measures, paints, clips, and selects Unicode grapheme clusters by terminal-cell width (including CJK and emoji sequences); plain ASCII keeps a fast path.
+- `Select` is a port of upstream's list: options with name, description and value; Up/K, Down/J, Shift+Up/Down (fast step 5), Enter; `OnChange`/`OnSelect` as upstream's `selectionChanged`/`itemSelected`; selection kept centered; optional scroll indicator, wrapping, item spacing. Beyond upstream: a click selects (a click on the selected item chooses it, and the clicked item stays under the pointer), the wheel moves the selection, `SetFilter` narrows by name or description, and it measures to its content when unsized. ASCII-art fonts are not supported.
 - `Styled(opts, spans...)` and `Node.SetSpans` show rich text, the counterpart of upstream's styled-text chunks: each `Span` has its own FG, BG, attributes and optional hyperlink, and spans may contain newlines. Build spans with `S("text").Bold().Fg(c)` or `Link(url, text)`. Styles survive wrapping and selection; a span boundary inside a grapheme cluster gives the cluster the first span's style. `SetText` returns to a single style.
 - Hyperlinks use OSC 8 and are sent only to terminals known to support them, as upstream: kitty, Ghostty, WezTerm, Alacritty, foot, iTerm2, VS Code, Zed, mintty, VTE ≥ 0.52.2, and WSL in Windows Terminal; never inside tmux/screen/zellij. `FORCE_HYPERLINK` or `Options.Hyperlinks` overrides. Link URLs have control bytes removed.
 - `TextOptions.Wrap` and `TextareaOptions.Wrap` soft-wrap lines: `WrapWord` breaks at Unicode line-break opportunities (falling back to character breaks for over-long words), `WrapChar` between any grapheme clusters. Wrapped `Text` grows taller in layout and reflows on resize; trailing spaces hang past the edge. Selecting across a soft wrap adds no newline. A wrapping `Textarea` keeps its last column for the cursor, and Up/Down move by visual row. The zero value is `WrapNone`; upstream defaults to word wrapping.
@@ -96,12 +98,13 @@ scripts/release-check.sh [ref]              # everything, on a clean checkout of
 | **v0.11.0** | Undo/redo and word movement/deletion in `Input` and `Textarea` |
 | **v0.12.0** | Color capability detection: truecolor, 256-color, 16-color, and `NO_COLOR` |
 | **v0.13.0** | Styled text spans (colors, attributes, OSC 8 hyperlinks) |
+| **v0.14.0** | `Select` list widget with mouse, wheel and filtering |
 
 ## Layout
 
 `Style` supports row/column directions (including reverse), grow and shrink, basis, fixed and percentage dimensions, min/max constraints, gap, padding, margins, justify/align, and absolute positioning. Layout is a pure-Go port of the supported Yoga 3.2.1 algorithm and is checked against 410 generated real-Yoga cases. It also carries OpenTUI's flex-shrink residue fix.
 
-## Known limitations (v0.13.0)
+## Known limitations (v0.14.0)
 
 - `Input` is still single-line and its public cursor offsets are rune indices; editing itself uses grapheme boundaries. Terminal width calculations use `uniseg` defaults and may differ from a particular terminal's emoji width settings.
 - Color mode is detected from `TERM`, `COLORTERM`, `WT_SESSION`, and `NO_COLOR`. It does not query the terminal. Unknown terminals still get truecolor, as upstream does. `Options.Color` can force a mode.

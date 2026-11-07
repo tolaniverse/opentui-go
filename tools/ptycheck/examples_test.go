@@ -411,3 +411,37 @@ func TestInputUndo(t *testing.T) {
 	s.waitText("Submitted: Ada King <a@b.c>")
 	s.exitCleanly()
 }
+
+func TestSelect(t *testing.T) {
+	s := start(t, buildExample(t, "select"), 70, 20)
+	s.waitText("▶ Go")
+	s.waitText("Simple, fast, concurrent")
+	s.send("j")
+	s.waitText("▶ Rust")
+	s.waitText("Highlighted: Rust")
+	s.send("\x1b[1;2B") // Shift+Down: five ahead, Rust (1) to Haskell (6)
+	s.waitText("▶ Haskell")
+	s.send("\r")
+	s.waitText("Chosen: Haskell")
+
+	// Tab wraps to the filter field; typing narrows the list.
+	s.send("\t")
+	s.send("py")
+	s.waitText("1 match(es)")
+	s.waitText("▶ Python")
+	s.waitFor("other languages filtered out", func() bool { _, _, ok := s.screen.Find("Rust"); return !ok })
+	s.send("\t\r")
+	s.waitText("Chosen: Python")
+
+	// Clicking the selected item chooses it again; clear the filter first.
+	s.send("\t\x15") // back to the filter, Ctrl+U clears it
+	s.waitText("12 match(es)")
+	x, y := s.waitText("Haskell") // visible: the list is centered on Python
+	s.send(sgrMouse(0, x, y, true))
+	s.send(sgrMouse(0, x, y, false))
+	s.waitText("Highlighted: Haskell")
+	s.send(sgrMouse(0, x, y, true))
+	s.send(sgrMouse(0, x, y, false))
+	s.waitText("Chosen: Haskell")
+	s.exitCleanly()
+}
