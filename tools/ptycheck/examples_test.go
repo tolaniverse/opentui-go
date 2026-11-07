@@ -5,6 +5,7 @@ package ptycheck
 import (
 	"encoding/base64"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -300,6 +301,44 @@ func TestTextareaMouse(t *testing.T) {
 	s.waitFor("view follows the cursor again", func() bool { _, _, ok := s.screen.Find("Zond"); return !ok })
 	s.waitText("Ln 22, Col 6")
 	s.exitCleanly()
+}
+
+func TestColorModes(t *testing.T) {
+	bin := buildExample(t, "color")
+	base := os.Environ()
+	strip := func(keys ...string) []string {
+		var out []string
+		skip := map[string]bool{}
+		for _, k := range keys {
+			skip[k] = true
+		}
+		for _, e := range base {
+			name, _, _ := strings.Cut(e, "=")
+			if !skip[name] {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		env             []string
+		text, has, lack string
+	}{
+		{[]string{"TERM=xterm-256color", "COLORTERM=truecolor"}, "mode truecolor", "\x1b[38;2;250;10;10m", "38;5;"},
+		{[]string{"TERM=xterm-256color"}, "mode 256", "\x1b[38;5;9m", "38;2;"},
+		{[]string{"TERM=linux"}, "mode 16", "\x1b[91m", "38;"},
+		{[]string{"TERM=xterm-256color", "COLORTERM=truecolor", "NO_COLOR=1"}, "mode none", "\x1b[39m", "38;"},
+	} {
+		t.Run(tc.text, func(t *testing.T) {
+			s := startEnv(t, bin, 40, 8, append(strip("TERM", "COLORTERM", "NO_COLOR", "WT_SESSION"), tc.env...))
+			s.waitText(tc.text)
+			s.waitFor("color sequence", func() bool { return s.rawContains(tc.has) })
+			if s.rawContains(tc.lack) {
+				t.Fatalf("output contains %q, which this mode must not send", tc.lack)
+			}
+			s.exitCleanly()
+		})
+	}
 }
 
 func TestTextareaUndoAndWords(t *testing.T) {

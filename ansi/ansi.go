@@ -112,3 +112,21 @@ func Clipboard(w Writer, target byte, text string) {
 	w.WriteString(base64.StdEncoding.EncodeToString([]byte(text)))
 	w.WriteString("\x1b\\")
 }
+
+// Basic writes one of the 16 basic colors (index 0-15) with the original
+// SGR codes: 30-37 / 90-97 for the foreground, 40-47 / 100-107 for the
+// background. Consoles without 256-color support understand only these.
+func Basic(w Writer, index uint8, background bool) {
+	code := 30 + int(index)
+	if index >= 8 {
+		code = 90 + int(index) - 8
+	}
+	if background {
+		code += 10
+	}
+	var buf [8]byte
+	out := append(buf[:0], "\x1b["...)
+	out = strconv.AppendInt(out, int64(code), 10)
+	out = append(out, 'm')
+	w.Write(out)
+}

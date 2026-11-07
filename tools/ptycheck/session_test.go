@@ -48,8 +48,15 @@ func buildExample(t *testing.T, name string) string {
 }
 
 func start(t *testing.T, bin string, w, h int) *session {
+	return startEnv(t, bin, w, h, nil)
+}
+
+func startEnv(t *testing.T, bin string, w, h int, env []string) *session {
 	t.Helper()
 	cmd := exec.Command(bin)
+	if env != nil {
+		cmd.Env = env
+	}
 	tty, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: uint16(w), Rows: uint16(h)})
 	if err != nil {
 		t.Fatalf("start pty: %v", err)

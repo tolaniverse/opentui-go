@@ -4,7 +4,7 @@ A pure-Go port of [OpenTUI](https://github.com/anomalyco/opentui), a library for
 
 Upstream OpenTUI pairs a Zig engine with a TypeScript API. This port reimplements both layers in Go, with no cgo and no Zig.
 
-> **Status: v0.11.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line and multiline text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering with soft wrapping, diff rendering, resize handling, and clean shutdown.
+> **Status: v0.12.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line and multiline text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering with soft wrapping, diff rendering, resize handling, and clean shutdown.
 > Unix only (macOS, Linux, BSD).
 
 Ported from upstream commit [`e4ad586`](https://github.com/anomalyco/opentui/tree/e4ad5867eae1051a2c1877b08d88bbcaf12b7209).
@@ -24,6 +24,7 @@ Each example focuses on one part of the library:
 | `go run ./examples/unicode` | Wide characters, combining marks, emoji grapheme clusters |
 | `go run ./examples/textarea` | Multiline editing, multi-line paste, mouse cursor placement, drag/Shift/double-click selection with copy, wheel scroll, submit |
 | `go run ./examples/wrap` | Word-wrapped text that reflows on resize, a wrapping editor, selection across soft wraps |
+| `go run ./examples/color` | Detected color mode (truecolor, 256, 16, or none) |
 
 Press Ctrl+C to quit; the terminal is restored.
 
@@ -90,15 +91,16 @@ scripts/release-check.sh [ref]              # everything, on a clean checkout of
 | **v0.9.0** | Soft wrapping (word and char) for `Text` and `Textarea`; selection across soft wraps |
 | **v0.10.0** | `Textarea` mouse support: click, drag, double-click, Shift selection, wheel scroll; typing replaces the selection |
 | **v0.11.0** | Undo/redo and word movement/deletion in `Input` and `Textarea` |
+| **v0.12.0** | Color capability detection: truecolor, 256-color, 16-color, and `NO_COLOR` |
 
 ## Layout
 
 `Style` supports row/column directions (including reverse), grow and shrink, basis, fixed and percentage dimensions, min/max constraints, gap, padding, margins, justify/align, and absolute positioning. Layout is a pure-Go port of the supported Yoga 3.2.1 algorithm and is checked against 410 generated real-Yoga cases. It also carries OpenTUI's flex-shrink residue fix.
 
-## Known limitations (v0.11.0)
+## Known limitations (v0.12.0)
 
 - `Input` is still single-line and its public cursor offsets are rune indices; editing itself uses grapheme boundaries. Terminal width calculations use `uniseg` defaults and may differ from a particular terminal's emoji width settings.
-- Truecolor is assumed; there is no terminal capability detection yet.
+- Color mode is detected from `TERM`, `COLORTERM`, `WT_SESSION`, and `NO_COLOR`. It does not query the terminal. Unknown terminals still get truecolor, as upstream does. `Options.Color` can force a mode.
 - No hyperlinks, images or cursor control.
 - Clipboard copy is write-only OSC 52; there is no clipboard read and no tmux/screen passthrough wrapping yet.
 - `Textarea` has no triple-click line selection; holding a drag still past the edge does not keep scrolling (each pointer move scrolls one row). Without wrapping, all lines share one horizontal scroll offset. Ctrl+A/E and Home/End act on logical lines and the buffer, not visual rows.

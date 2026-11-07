@@ -47,6 +47,11 @@ type Options struct {
 	NoMouse bool
 	// NoAutoFocus disables the default left-click focus behavior.
 	NoAutoFocus bool
+
+	// Color is how many colors to send. ColorAuto (the zero value) detects
+	// it from TERM, COLORTERM and NO_COLOR; see DetectColorMode. Colors
+	// beyond the mode are mapped to the nearest palette entry.
+	Color ColorMode
 }
 
 // Renderer owns the terminal: it switches it into raw mode, keeps two
@@ -55,6 +60,7 @@ type Options struct {
 // renderer.zig).
 type Renderer struct {
 	opts     Options
+	colors   *colorEncoder
 	in, out  *os.File
 	w        *bufio.Writer
 	oldState *term.State
@@ -99,6 +105,11 @@ func New(opts Options) (*Renderer, error) {
 		done:        make(chan struct{}),
 	}
 	r.root.ID = "root"
+	mode := opts.Color
+	if mode == ColorAuto {
+		mode = DetectColorMode(os.Getenv)
+	}
+	r.colors = newColorEncoder(mode, opts.Background)
 	if r.in == nil {
 		r.in = os.Stdin
 	}
@@ -190,7 +201,7 @@ func (r *Renderer) Buffer() *Buffer { return r.next }
 // Render paints what changed since the last frame, then clears the drawing
 // buffer for the next one.
 func (r *Renderer) Render() error {
-	encodeFrame(r.w, r.current, r.next, FrameOptions{Sync: !r.opts.NoSync})
+	encodeFrame(r.w, r.current, r.next, FrameOptions{Sync: !r.opts.NoSync, colors: r.colors})
 	r.next.Clear(r.opts.Background)
 	return r.w.Flush()
 }
@@ -368,4 +379,13 @@ func (r *Renderer) readInput(ctx context.Context, done chan<- struct{}) {
 			return
 		}
 	}
+}
+
+// ColorMode returns the color mode in use: Options.Color, or the mode
+// detected from the environment when that was ColorAuto.
+func (r *Renderer) ColorMode() ColorMode {
+	if r.colors == nil {
+		return ColorTrueColor
+	}
+	return r.colors.mode
 }

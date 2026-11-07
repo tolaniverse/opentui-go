@@ -13,6 +13,10 @@ type FrameOptions struct {
 	// Sync wraps the frame in synchronized-output markers (DEC mode 2026) so
 	// supporting terminals show it all at once, with no tearing.
 	Sync bool
+
+	// colors encodes colors for the terminal's color mode; nil sends
+	// truecolor.
+	colors *colorEncoder
 }
 
 // FrameStats reports what one frame encode did.
@@ -88,9 +92,13 @@ func encodeFrame(w ansi.Writer, current, next *Buffer, opts FrameOptions) FrameS
 				runLength = 0
 				style = cell
 				ansi.MoveTo(w, x+1, y+1) // terminal coordinates are 1-based
-				emitColor(w, cell.FG, false)
-				emitColor(w, cell.BG, true)
-				emitAttr(w, cell.Attr)
+				opts.colors.emit(w, cell.FG, false)
+				opts.colors.emit(w, cell.BG, true)
+				attr := cell.Attr
+				if opts.colors.highlight(cell) {
+					attr ^= AttrInverse
+				}
+				emitAttr(w, attr)
 			}
 
 			if cell.Grapheme != "" {
@@ -105,7 +113,7 @@ func encodeFrame(w ansi.Writer, current, next *Buffer, opts FrameOptions) FrameS
 
 		// A new run only turns attributes on, never off, so close an
 		// attributed run before the next row starts.
-		if runLength > 0 && style.Attr != AttrNone {
+		if runLength > 0 && (style.Attr != AttrNone || opts.colors.highlight(style)) {
 			w.WriteString(ansi.Reset)
 		}
 	}
@@ -138,32 +146,6 @@ func writeRune(w ansi.Writer, r rune) {
 	}
 	var tmp [utf8.UTFMax]byte
 	w.Write(utf8.AppendRune(tmp[:0], r))
-}
-
-// emitColor writes the SGR code for one color. Port of `emitColor` in
-// upstream renderer.zig, assuming a truecolor terminal (capability
-// detection arrives in a later release).
-func emitColor(w ansi.Writer, c RGBA, background bool) {
-	switch {
-	case c.Intent == IntentDefault || (background && c.A == 0):
-		if background {
-			w.WriteString(ansi.BgDefault)
-		} else {
-			w.WriteString(ansi.FgDefault)
-		}
-	case c.Intent == IntentIndexed:
-		if background {
-			ansi.BgIndexed(w, c.Slot)
-		} else {
-			ansi.FgIndexed(w, c.Slot)
-		}
-	default:
-		if background {
-			ansi.BgRGB(w, c.R, c.G, c.B)
-		} else {
-			ansi.FgRGB(w, c.R, c.G, c.B)
-		}
-	}
 }
 
 var attrCodes = [...]struct {
