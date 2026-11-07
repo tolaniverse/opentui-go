@@ -3,6 +3,7 @@
 package ptycheck
 
 import (
+	"encoding/base64"
 	"fmt"
 	"regexp"
 	"strings"
@@ -255,5 +256,48 @@ func TestWrap(t *testing.T) {
 	if chars <= firstLen || newlines != 0 {
 		t.Fatalf("selection across a soft wrap: %d chars (first row %d), %d newlines; want more chars and 0 newlines", chars, firstLen, newlines)
 	}
+	s.exitCleanly()
+}
+
+func TestTextareaMouse(t *testing.T) {
+	s := start(t, buildExample(t, "textarea"), 80, 16)
+	s.waitText("Ln 1, Col 1 · 1 line(s)")
+	s.send("first\rsecond\rthird")
+	s.waitText("Ln 3, Col 6 · 3 line(s)")
+	fx, fy := s.waitText("first")
+	sx, sy := s.waitText("second")
+
+	// Click places the cursor.
+	s.send(sgrMouse(0, sx+3, sy, true))
+	s.send(sgrMouse(0, sx+3, sy, false))
+	s.waitText("Ln 2, Col 4 · 3 line(s)")
+
+	// Drag from "first" to the middle of "second" selects and copies.
+	s.send(sgrMouse(0, fx, fy, true))
+	s.send(sgrMouse(32, sx+2, sy, true))
+	s.send(sgrMouse(32, sx+3, sy, true))
+	s.send(sgrMouse(0, sx+3, sy, false))
+	s.waitText("Copied 9 chars")
+	osc52 := "\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte("first\nsec")) + "\x1b\\"
+	s.waitFor("OSC 52 copy of the editor selection", func() bool { return s.rawContains(osc52) })
+
+	// Typing replaces the selection.
+	s.send("Z")
+	s.waitText("Zond")
+	s.waitText("Ln 1, Col 2 · 2 line(s)")
+
+	// Fill past the viewport, then wheel up: the view moves, the cursor
+	// does not; the next key scrolls back to the cursor.
+	s.send("\x1b[F" + strings.Repeat("\rmore", 20))
+	s.waitText("Ln 22, Col 5 · 22 line(s)")
+	s.waitFor("first line scrolled out", func() bool { _, _, ok := s.screen.Find("Zond"); return !ok })
+	for i := 0; i < 10; i++ {
+		s.send(sgrMouse(64, sx, sy, true))
+	}
+	s.waitText("Zond")
+	s.waitText("Ln 22, Col 5 · 22 line(s)")
+	s.send("!")
+	s.waitFor("view follows the cursor again", func() bool { _, _, ok := s.screen.Find("Zond"); return !ok })
+	s.waitText("Ln 22, Col 6")
 	s.exitCleanly()
 }

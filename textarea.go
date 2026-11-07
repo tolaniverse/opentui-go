@@ -2,7 +2,6 @@ package opentui
 
 import (
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/rivo/uniseg"
@@ -28,6 +27,11 @@ type TextareaOptions struct {
 	OnInput  func(value string) // every edit
 	OnChange func(value string) // blur or submit after a change
 	OnSubmit func(value string) // Meta/Alt+Enter
+	// OnSelect is called with the selected text when a mouse selection
+	// ends (on release) with a non-empty selection, e.g. to copy it.
+	OnSelect func(text string)
+
+	SelectionFG, SelectionBG RGBA // zero values match Text's defaults
 
 	// Wrap soft-wraps long lines; WrapNone (the zero value) scrolls them
 	// horizontally instead. Wrapping keeps the last column free for the
@@ -52,6 +56,11 @@ type textareaState struct {
 	// wrapWidth is the width rows were last wrapped to when painting; 0
 	// before the first paint or with WrapNone (one row per line).
 	wrapWidth int
+
+	selectionState
+	// follow keeps the cursor in view when painting. Wheel scrolling turns
+	// it off so the view can move away; keys, edits and clicks turn it on.
+	follow    bool
 	committed string
 	opts      TextareaOptions
 }
@@ -71,9 +80,15 @@ func Textarea(o TextareaOptions) *Node {
 	if o.PlaceholderColor == (RGBA{}) {
 		o.PlaceholderColor = RGB(128, 128, 128)
 	}
+	if o.SelectionFG == (RGBA{}) {
+		o.SelectionFG = RGB(30, 30, 46)
+	}
+	if o.SelectionBG == (RGBA{}) {
+		o.SelectionBG = RGB(137, 180, 250)
+	}
 	n := NewNode(o.Style)
 	n.ID, n.ZIndex, n.Focusable = o.ID, o.ZIndex, true
-	n.textarea = &textareaState{lines: [][]rune{nil}, goal: -1, opts: o}
+	n.textarea = &textareaState{lines: [][]rune{nil}, goal: -1, follow: true, opts: o}
 	n.setTextareaValue(o.Value, false)
 	n.textarea.committed = n.Value()
 
@@ -97,6 +112,7 @@ func Textarea(o TextareaOptions) *Node {
 	}
 	n.paint = paintTextarea
 	n.keyHandler = n.handleTextareaKey
+	n.controlMouseHandler = n.handleTextareaMouse
 	n.pasteHandler = func(event *PasteEvent) {
 		if n.InsertText(event.Text) {
 			event.PreventDefault()
@@ -149,6 +165,7 @@ func (n *Node) setTextareaValue(value string, notify bool) {
 	s.line = len(s.lines) - 1
 	s.col = len(s.lines[s.line])
 	s.goal = -1
+	s.hasAnchor, s.follow = false, true
 	if notify {
 		n.notifyTextarea()
 	}
@@ -174,6 +191,7 @@ func (n *Node) SetCursorPosition(line, col int) {
 	s.line = min(max(line, 0), len(s.lines)-1)
 	s.col = inputFloor(s.lines[s.line], col)
 	s.goal = -1
+	s.hasAnchor, s.follow = false, true
 }
 
 // LineCount returns the number of lines in a Textarea (at least 1), or 0
@@ -191,6 +209,8 @@ func (n *Node) insertTextarea(text string) bool {
 	if text == "" {
 		return false
 	}
+	s.deleteSelection() // typing or pasting replaces the selection
+	s.follow = true
 	cur := s.lines[s.line]
 	if !strings.Contains(text, "\n") {
 		// Typing: edit one line instead of rebuilding the line list.
@@ -293,10 +313,9 @@ func asciiOnlyRunes(line []rune) bool {
 	return true
 }
 
-func (n *Node) handleTextareaKey(key *KeyEvent) {
-	if n.textarea == nil || key.Type == KeyRelease {
-		return
-	}
+// editTextareaKey applies one key to the text and cursor, ignoring any
+// selection; handleTextareaKey (textarea_select.go) wraps it.
+func (n *Node) editTextareaKey(key *KeyEvent) {
 	s := n.textarea
 	line := s.lines[s.line]
 	edited, handled := false, true
@@ -393,13 +412,7 @@ func (n *Node) handleTextareaKey(key *KeyEvent) {
 			edited = true
 			break
 		}
-		start := s.col
-		for start > 0 && unicode.IsSpace(line[inputPrev(line, start)]) {
-			start = inputPrev(line, start)
-		}
-		for start > 0 && !unicode.IsSpace(line[inputPrev(line, start)]) {
-			start = inputPrev(line, start)
-		}
+		start := wordStartBefore(line, s.col)
 		s.lines[s.line] = append(line[:start], line[s.col:]...)
 		s.col = start
 		edited = true
@@ -423,6 +436,12 @@ func (n *Node) handleTextareaKey(key *KeyEvent) {
 // Without wrapping it is one row whose width is left 0: callers only need
 // the offsets, and measuring every visible line would cost a segmentation
 // pass per line per frame.
+// clampTop keeps the scroll anchor inside the document after edits.
+func (s *textareaState) clampTop() {
+	s.topLine = min(max(s.topLine, 0), len(s.lines)-1)
+	s.topRow = min(max(s.topRow, 0), len(s.rowsOf(s.topLine))-1)
+}
+
 func (s *textareaState) rowsOf(i int) []wrapRow {
 	if s.opts.Wrap == WrapNone || s.wrapWidth <= 0 {
 		return []wrapRow{{0, len(s.lines[i]), 0}}
@@ -496,16 +515,17 @@ func paintTextarea(b *Buffer, n *Node) {
 	if bg.A > 0 {
 		b.FillRect(r.X, r.Y, r.W, r.H, bg)
 	}
-	if len(s.lines) == 1 && len(s.lines[0]) == 0 && !n.focused {
-		b.DrawText(s.opts.Placeholder, r.X, r.Y, s.opts.PlaceholderColor, bg, AttrDim)
-		return
-	}
-
 	wrapping := s.opts.Wrap != WrapNone
 	s.wrapWidth = 0
 	if wrapping {
 		s.wrapWidth, s.scrollX = max(r.W-1, 1), 0
 	}
+	s.clampTop()
+	if len(s.lines) == 1 && len(s.lines[0]) == 0 && !n.focused {
+		b.DrawText(s.opts.Placeholder, r.X, r.Y, s.opts.PlaceholderColor, bg, AttrDim)
+		return
+	}
+
 	// Rows of the lines this paint touches; scrolling visits only lines
 	// near the viewport, so cost follows its height, not the document.
 	var cache map[int][]wrapRow
@@ -556,13 +576,13 @@ func paintTextarea(b *Buffer, n *Node) {
 		return limit, false // the target is limit or more rows away
 	}
 
-	s.topLine = min(max(s.topLine, 0), len(s.lines)-1)
-	s.topRow = min(max(s.topRow, 0), len(rowsOf(s.topLine))-1)
 	cur := s.lines[s.line]
 	curRows := rowsOf(s.line)
 	curRow := rowOf(curRows, s.col)
-	// Keep the cursor's visual row inside the viewport...
-	if s.line < s.topLine || (s.line == s.topLine && curRow < s.topRow) {
+	// Keep the cursor's visual row inside the viewport (unless the wheel
+	// moved the view away from it)...
+	if !s.follow {
+	} else if s.line < s.topLine || (s.line == s.topLine && curRow < s.topRow) {
 		s.topLine, s.topRow = s.line, curRow
 	} else if _, ok := ahead(s.topLine, s.topRow, s.line, curRow, r.H); !ok {
 		s.topLine, s.topRow = back(s.line, curRow, r.H-1)
@@ -578,7 +598,7 @@ func paintTextarea(b *Buffer, n *Node) {
 	if s.col < len(cur) {
 		glyphWidth = max(displayWidth(string(cur[s.col:inputNext(cur, s.col)])), 1)
 	}
-	if !wrapping {
+	if !wrapping && s.follow {
 		if cursorCell < s.scrollX {
 			s.scrollX = cursorCell
 		} else if cursorCell+glyphWidth > s.scrollX+r.W {
@@ -587,11 +607,15 @@ func paintTextarea(b *Buffer, n *Node) {
 		s.scrollX = max(s.scrollX, 0)
 	}
 
+	sel, selected := s.selectionRange()
 	line, row, cursorY := s.topLine, s.topRow, -1
 	for y := 0; y < r.H && line < len(s.lines); y++ {
 		rows := rowsOf(line)
 		span := rows[row]
 		drawTextareaLine(b, s.lines[line][span.start:span.end], s.scrollX, r.W, r.X, r.Y+y, fg, bg)
+		if selected {
+			s.paintSelectedRow(b, sel, line, span, row == len(rows)-1, r.X-s.scrollX, r.Y+y)
+		}
 		if line == s.line && row == curRow {
 			cursorY = y
 		}

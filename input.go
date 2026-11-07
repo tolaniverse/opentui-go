@@ -249,13 +249,7 @@ func (n *Node) handleInputKey(key *KeyEvent) {
 		s.value = append([]rune(nil), s.value[:s.cursor]...)
 		n.notifyInput()
 	case key.Ctrl && key.Name == "w":
-		start := s.cursor
-		for start > 0 && unicode.IsSpace(s.value[inputPrev(s.value, start)]) {
-			start = inputPrev(s.value, start)
-		}
-		for start > 0 && !unicode.IsSpace(s.value[inputPrev(s.value, start)]) {
-			start = inputPrev(s.value, start)
-		}
+		start := wordStartBefore(s.value, s.cursor)
 		if start == s.cursor {
 			handled = false
 			break
@@ -439,4 +433,23 @@ func truncateClusters(value string, limit int) string {
 		count++
 	}
 	return value[:end]
+}
+
+// wordStartBefore returns where Ctrl+W deletes back to from offset: past
+// spaces, then past non-spaces, by whole grapheme clusters. It segments
+// the value once; stepping with inputPrev re-segments it per step, which
+// made Ctrl+W quadratic on long lines.
+func wordStartBefore(value []rune, offset int) int {
+	offsets := inputOffsets(value)
+	i := len(offsets) - 1
+	for i > 0 && offsets[i] > offset {
+		i--
+	}
+	for i > 0 && unicode.IsSpace(value[offsets[i-1]]) {
+		i--
+	}
+	for i > 0 && !unicode.IsSpace(value[offsets[i-1]]) {
+		i--
+	}
+	return offsets[i]
 }

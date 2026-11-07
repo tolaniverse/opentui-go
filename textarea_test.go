@@ -258,6 +258,7 @@ func FuzzTextareaKeys(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, value string, ops []byte) {
 		n := Textarea(TextareaOptions{Value: value})
+		ops = ops[:min(len(ops), 300)] // longer lists only slow the fuzzer
 		for _, op := range ops {
 			k := *keys[int(op)%len(keys)]
 			n.keyHandler(&k)

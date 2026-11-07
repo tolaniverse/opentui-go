@@ -314,3 +314,15 @@ func (b *Buffer) drawCursor(x, y int) {
 		b.cells[row+col].Attr |= AttrInverse
 	}
 }
+
+// recolor sets the colors of cells [x0, x1) on row y, keeping their
+// content, within the current clip. It highlights a painted range, such
+// as an editor selection.
+func (b *Buffer) recolor(x0, x1, y int, fg, bg RGBA) {
+	for x := x0; x < x1; x++ {
+		if b.inBounds(x, y) {
+			c := &b.cells[y*b.width+x]
+			c.FG, c.BG = fg, bg
+		}
+	}
+}
