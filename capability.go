@@ -1,6 +1,7 @@
 package opentui
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/tolaniverse/opentui-go/ansi"
@@ -74,6 +75,8 @@ type colorEncoder struct {
 	mode       ColorMode
 	background RGBA // the renderer background, for ColorNone highlights
 	nearest    map[uint32]uint8
+	links      bool           // send OSC 8 hyperlinks
+	linkIDs    map[string]int // stable id per URL for this terminal
 }
 
 func newColorEncoder(mode ColorMode, background RGBA) *colorEncoder {
@@ -169,4 +172,80 @@ func (e *colorEncoder) highlight(cell Cell) bool {
 		return false
 	}
 	return rgb24(cell.BG) != rgb24(e.background) || e.background.A == 0
+}
+
+// linkID numbers URLs from 1 in the order they are first sent.
+func (e *colorEncoder) linkID(url string) int {
+	if e.linkIDs == nil {
+		e.linkIDs = map[string]int{}
+	}
+	id, ok := e.linkIDs[url]
+	if !ok {
+		id = len(e.linkIDs) + 1
+		e.linkIDs[url] = id
+	}
+	return id
+}
+
+// HyperlinkMode controls OSC 8 hyperlinks.
+type HyperlinkMode uint8
+
+const (
+	HyperlinksAuto HyperlinkMode = iota // detect from the environment (DetectHyperlinks)
+	HyperlinksOn
+	HyperlinksOff
+)
+
+// hyperlinkTerms are terminals known to support OSC 8, as upstream
+// isHyperlinkTerm.
+var hyperlinkTerms = []string{"ghostty", "kitty", "wezterm", "alacritty", "foot", "iterm", "xterm.js", "terminology"}
+
+func isHyperlinkTerm(name string) bool {
+	name = strings.ToLower(name)
+	for _, t := range hyperlinkTerms {
+		if strings.Contains(name, t) {
+			return true
+		}
+	}
+	return name == "rex" || name == "xterm-rex"
+}
+
+// DetectHyperlinks reports whether to send OSC 8 hyperlinks, from the
+// environment (pass os.Getenv). It follows upstream terminal.zig, where
+// links are off unless the terminal is known to support them:
+//
+//   - FORCE_HYPERLINK overrides everything ("0", "false", "off" disable)
+//   - inside tmux, screen or zellij: off, as upstream for host signals
+//   - TERM naming a known terminal (kitty, ghostty, wezterm, alacritty,
+//     foot, iterm, ...): on
+//   - TERM_PROGRAM vscode, zed or mintty, or VTE_VERSION >= 5202: on
+//     (older VTE releases can crash on OSC 8)
+//   - WSL inside Windows Terminal with an xterm TERM: on
+//
+// It adds one rule: TERM_PROGRAM naming a known terminal (iTerm.app,
+// WezTerm, ghostty) is on, because upstream recognises those through an
+// XTVERSION query this port does not send.
+func DetectHyperlinks(getenv func(string) string) bool {
+	if v := getenv("FORCE_HYPERLINK"); v != "" {
+		v = strings.ToLower(v)
+		return v != "0" && v != "false" && v != "off"
+	}
+	term, program := getenv("TERM"), getenv("TERM_PROGRAM")
+	lower := strings.ToLower(term)
+	if getenv("TMUX") != "" || getenv("STY") != "" || getenv("ZELLIJ") != "" ||
+		strings.HasPrefix(lower, "tmux") || strings.HasPrefix(lower, "screen") {
+		return false
+	}
+	if isHyperlinkTerm(term) || isHyperlinkTerm(program) {
+		return true
+	}
+	switch program {
+	case "vscode", "zed", "mintty":
+		return true
+	}
+	if v, err := strconv.Atoi(getenv("VTE_VERSION")); err == nil && v >= 5202 {
+		return true
+	}
+	wsl := getenv("WSL_DISTRO_NAME") != "" || getenv("WSL_INTEROP") != ""
+	return wsl && getenv("WT_SESSION") != "" && strings.HasPrefix(lower, "xterm")
 }

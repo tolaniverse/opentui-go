@@ -305,21 +305,6 @@ func TestTextareaMouse(t *testing.T) {
 
 func TestColorModes(t *testing.T) {
 	bin := buildExample(t, "color")
-	base := os.Environ()
-	strip := func(keys ...string) []string {
-		var out []string
-		skip := map[string]bool{}
-		for _, k := range keys {
-			skip[k] = true
-		}
-		for _, e := range base {
-			name, _, _ := strings.Cut(e, "=")
-			if !skip[name] {
-				out = append(out, e)
-			}
-		}
-		return out
-	}
 	for _, tc := range []struct {
 		env             []string
 		text, has, lack string
@@ -330,7 +315,7 @@ func TestColorModes(t *testing.T) {
 		{[]string{"TERM=xterm-256color", "COLORTERM=truecolor", "NO_COLOR=1"}, "mode none", "\x1b[39m", "38;"},
 	} {
 		t.Run(tc.text, func(t *testing.T) {
-			s := startEnv(t, bin, 40, 8, append(strip("TERM", "COLORTERM", "NO_COLOR", "WT_SESSION"), tc.env...))
+			s := startEnv(t, bin, 40, 8, cleanEnv(tc.env...))
 			s.waitText(tc.text)
 			s.waitFor("color sequence", func() bool { return s.rawContains(tc.has) })
 			if s.rawContains(tc.lack) {
@@ -339,6 +324,49 @@ func TestColorModes(t *testing.T) {
 			s.exitCleanly()
 		})
 	}
+}
+
+// cleanEnv is the test process environment without terminal-detection
+// variables, so each case sets exactly what it tests.
+func cleanEnv(extra ...string) []string {
+	skip := map[string]bool{"TERM": true, "COLORTERM": true, "NO_COLOR": true, "WT_SESSION": true,
+		"TERM_PROGRAM": true, "VTE_VERSION": true, "TMUX": true, "STY": true, "ZELLIJ": true,
+		"FORCE_HYPERLINK": true, "WSL_DISTRO_NAME": true, "WSL_INTEROP": true}
+	var out []string
+	for _, e := range os.Environ() {
+		if name, _, _ := strings.Cut(e, "="); !skip[name] {
+			out = append(out, e)
+		}
+	}
+	return append(out, extra...)
+}
+
+func TestStyled(t *testing.T) {
+	bin := buildExample(t, "styled")
+	url := "https://github.com/tolaniverse/opentui-go"
+	open := "\x1b]8;id=1;" + url + "\x1b\\"
+	t.Run("links on", func(t *testing.T) {
+		s := startEnv(t, bin, 70, 16, cleanEnv("TERM=xterm-kitty", "COLORTERM=truecolor"))
+		s.waitText("Hyperlinks on")
+		s.waitText("opentui-go on")
+		s.waitFor("OSC 8 link around the link text", func() bool { return s.rawContains(open) })
+		s.waitFor("link closed", func() bool { return s.rawContains("\x1b]8;;\x1b\\") })
+		for _, code := range []string{"\x1b[1m", "\x1b[3m", "\x1b[4m"} { // bold, italic, underline
+			if !s.rawContains(code) {
+				t.Errorf("missing SGR %q", code)
+			}
+		}
+		s.exitCleanly()
+	})
+	t.Run("links off", func(t *testing.T) {
+		s := startEnv(t, bin, 70, 16, cleanEnv("TERM=xterm-256color", "COLORTERM=truecolor"))
+		s.waitText("Hyperlinks off")
+		s.waitText("opentui-go on")
+		if s.rawContains("]8;") {
+			t.Fatal("hyperlinks sent to a terminal not known to support them")
+		}
+		s.exitCleanly()
+	})
 }
 
 func TestTextareaUndoAndWords(t *testing.T) {

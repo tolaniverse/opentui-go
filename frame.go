@@ -51,6 +51,7 @@ func encodeFrame(w ansi.Writer, current, next *Buffer, opts FrameOptions) FrameS
 		w.WriteString(ansi.HideCursor)
 	}
 
+	links := opts.colors != nil && opts.colors.links // checked once, not per cell
 	width := next.width
 	for y := 0; y < next.height; y++ {
 		row := y * width
@@ -63,6 +64,15 @@ func encodeFrame(w ansi.Writer, current, next *Buffer, opts FrameOptions) FrameS
 
 		var style Cell // fg/bg/attr of the current run; Char unused
 		runLength := 0
+		// link is the hyperlink open in the terminal. It is closed whenever
+		// the cursor is about to move away, so it never covers other cells.
+		link := ""
+		closeLink := func() {
+			if link != "" {
+				w.WriteString(ansi.LinkEnd)
+				link = ""
+			}
+		}
 
 		for x := range nextRow {
 			cell := nextRow[x]
@@ -76,6 +86,7 @@ func encodeFrame(w ansi.Writer, current, next *Buffer, opts FrameOptions) FrameS
 
 			if !opts.Force && curRow[x] == cell {
 				if runLength > 0 { // the run is broken by an unchanged cell
+					closeLink()
 					w.WriteString(ansi.Reset)
 					runLength = 0
 				}
@@ -101,6 +112,13 @@ func encodeFrame(w ansi.Writer, current, next *Buffer, opts FrameOptions) FrameS
 				emitAttr(w, attr)
 			}
 
+			if links && cell.Link != link {
+				closeLink()
+				if cell.Link != "" {
+					ansi.LinkStart(w, opts.colors.linkID(cell.Link), cell.Link)
+					link = cell.Link
+				}
+			}
 			if cell.Grapheme != "" {
 				w.WriteString(cell.Grapheme)
 			} else {
@@ -111,6 +129,7 @@ func encodeFrame(w ansi.Writer, current, next *Buffer, opts FrameOptions) FrameS
 			stats.CellsUpdated++
 		}
 
+		closeLink()
 		// A new run only turns attributes on, never off, so close an
 		// attributed run before the next row starts.
 		if runLength > 0 && (style.Attr != AttrNone || opts.colors.highlight(style)) {

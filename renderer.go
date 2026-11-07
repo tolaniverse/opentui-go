@@ -52,6 +52,11 @@ type Options struct {
 	// it from TERM, COLORTERM and NO_COLOR; see DetectColorMode. Colors
 	// beyond the mode are mapped to the nearest palette entry.
 	Color ColorMode
+
+	// Hyperlinks controls OSC 8 links from Span.Link. HyperlinksAuto (the
+	// zero value) enables them only for terminals known to support them;
+	// see DetectHyperlinks.
+	Hyperlinks HyperlinkMode
 }
 
 // Renderer owns the terminal: it switches it into raw mode, keeps two
@@ -110,6 +115,12 @@ func New(opts Options) (*Renderer, error) {
 		mode = DetectColorMode(os.Getenv)
 	}
 	r.colors = newColorEncoder(mode, opts.Background)
+	switch opts.Hyperlinks {
+	case HyperlinksOn:
+		r.colors.links = true
+	case HyperlinksAuto:
+		r.colors.links = DetectHyperlinks(os.Getenv)
+	}
 	if r.in == nil {
 		r.in = os.Stdin
 	}
@@ -389,3 +400,6 @@ func (r *Renderer) ColorMode() ColorMode {
 	}
 	return r.colors.mode
 }
+
+// Hyperlinks reports whether OSC 8 hyperlinks are sent to the terminal.
+func (r *Renderer) Hyperlinks() bool { return r.colors != nil && r.colors.links }

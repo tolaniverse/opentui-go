@@ -130,3 +130,19 @@ func Basic(w Writer, index uint8, background bool) {
 	out = append(out, 'm')
 	w.Write(out)
 }
+
+// LinkEnd closes an OSC 8 hyperlink.
+const LinkEnd = "\x1b]8;;\x1b\\"
+
+// LinkStart opens an OSC 8 hyperlink to url, as upstream renderer.zig:
+// ESC ] 8 ; id=N ; url ST. The id lets terminals treat the pieces of one
+// link that are split across rows or runs as a single link.
+func LinkStart(w Writer, id int, url string) {
+	var buf [24]byte
+	out := append(buf[:0], "\x1b]8;id="...)
+	out = strconv.AppendInt(out, int64(id), 10)
+	out = append(out, ';')
+	w.Write(out)
+	w.WriteString(url)
+	w.WriteString("\x1b\\")
+}

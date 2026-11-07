@@ -38,6 +38,8 @@ type Cell struct {
 	FG           RGBA
 	BG           RGBA
 	Attr         Attr
+	// Link is the URL of an OSC 8 hyperlink over this cell, or "".
+	Link string
 }
 
 // clearChar marks cells that have never been painted. Nothing draws it, so
@@ -227,19 +229,27 @@ func (b *Buffer) blendCells(over, dest Cell) Cell {
 	// tints it, instead of erasing it. This is how overlays "dim" content.
 	keep := over.Char == ' ' && dest.Char != 0 && dest.Char != ' ' && dest.Char != clearChar
 	if keep {
-		return Cell{Char: dest.Char, Grapheme: dest.Grapheme, FG: blend(over.BG, dest.FG, b.backdrop), BG: bg, Attr: dest.Attr}
+		return Cell{Char: dest.Char, Grapheme: dest.Grapheme, FG: blend(over.BG, dest.FG, b.backdrop), BG: bg, Attr: dest.Attr, Link: dest.Link}
 	}
 
 	fg := over.FG
 	if fgAlpha {
 		fg = blend(over.FG, bg, b.backdrop)
 	}
-	return Cell{Char: over.Char, Grapheme: over.Grapheme, FG: fg, BG: bg, Attr: over.Attr}
+	return Cell{Char: over.Char, Grapheme: over.Grapheme, FG: fg, BG: bg, Attr: over.Attr, Link: over.Link}
 }
 
 // DrawText writes grapheme clusters starting at (x, y), clipped to the
 // buffer. It does not wrap. Translucent colors blend with what is underneath.
 func (b *Buffer) DrawText(text string, x, y int, fg, bg RGBA, attr Attr) {
+	b.DrawTextLink(text, "", x, y, fg, bg, attr)
+}
+
+// DrawTextLink is DrawText with an OSC 8 hyperlink to url over the text
+// ("" for none). Control bytes in url are dropped so it cannot end the
+// escape sequence early.
+func (b *Buffer) DrawTextLink(text, url string, x, y int, fg, bg RGBA, attr Attr) {
+	url = sanitizeLink(url)
 	clip := b.Clip()
 	if y < clip.Y || y >= clip.Y+clip.H {
 		return
@@ -251,7 +261,7 @@ func (b *Buffer) DrawText(text string, x, y int, fg, bg RGBA, attr Attr) {
 				if r < 0x20 || r == 0x7f {
 					r = ' '
 				}
-				b.SetBlended(x, y, Cell{Char: r, FG: fg, BG: bg, Attr: attr})
+				b.SetBlended(x, y, Cell{Char: r, FG: fg, BG: bg, Attr: attr, Link: url})
 			}
 			x++
 		}
@@ -275,7 +285,7 @@ func (b *Buffer) DrawText(text string, x, y int, fg, bg RGBA, attr Attr) {
 			x += width // never paint a partial grapheme
 			continue
 		}
-		cell := Cell{Char: r, FG: fg, BG: bg, Attr: attr}
+		cell := Cell{Char: r, FG: fg, BG: bg, Attr: attr, Link: url}
 		if width > 1 || len(glyph) != len(string(r)) {
 			cell.Grapheme = glyph
 		}
@@ -325,4 +335,28 @@ func (b *Buffer) recolor(x0, x1, y int, fg, bg RGBA) {
 			c.FG, c.BG = fg, bg
 		}
 	}
+}
+
+// sanitizeLink drops C0/C1 control bytes and DEL from a hyperlink URL.
+func sanitizeLink(url string) string {
+	if url == "" {
+		return ""
+	}
+	clean := true
+	for _, r := range url {
+		if r < 0x20 || (r >= 0x7f && r <= 0x9f) {
+			clean = false
+			break
+		}
+	}
+	if clean {
+		return url
+	}
+	out := make([]rune, 0, len(url))
+	for _, r := range url {
+		if !(r < 0x20 || (r >= 0x7f && r <= 0x9f)) {
+			out = append(out, r)
+		}
+	}
+	return string(out)
 }

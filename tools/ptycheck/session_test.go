@@ -47,8 +47,10 @@ func buildExample(t *testing.T, name string) string {
 	return bin
 }
 
+// start runs bin with a fixed truecolor terminal environment, so color
+// assertions do not depend on the terminal or CI running the tests.
 func start(t *testing.T, bin string, w, h int) *session {
-	return startEnv(t, bin, w, h, nil)
+	return startEnv(t, bin, w, h, cleanEnv("TERM=xterm-256color", "COLORTERM=truecolor"))
 }
 
 func startEnv(t *testing.T, bin string, w, h int, env []string) *session {
