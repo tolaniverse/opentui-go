@@ -16,8 +16,8 @@ type TextOptions struct {
 	NoSelect    bool
 	SelectionFG RGBA
 	SelectionBG RGBA
-	// Wrap soft-wraps lines to the node's width. The zero value, WrapNone,
-	// keeps one row per line (upstream defaults to word wrapping).
+	// Wrap soft-wraps lines to the node's width. The zero value,
+	// WrapDefault, does not wrap Text (upstream Text defaults to word).
 	Wrap WrapMode
 }
 
@@ -84,6 +84,7 @@ func (t *textState) visual(width int) []visualRow {
 // It is a simplified stand-in for upstream TextRenderable: plain text only,
 // no styled spans. Set TextOptions.Wrap to soft-wrap to the node's width.
 func Text(content string, o TextOptions) *Node {
+	o.Wrap = o.Wrap.or(WrapNone)
 	n := NewNode(o.Style)
 	n.ID, n.ZIndex = o.ID, o.ZIndex
 	if o.FG == (RGBA{}) {

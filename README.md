@@ -4,7 +4,7 @@ A pure-Go port of [OpenTUI](https://github.com/anomalyco/opentui), a library for
 
 Upstream OpenTUI pairs a Zig engine with a TypeScript API. This port reimplements both layers in Go, with no cgo and no Zig.
 
-> **Status: v0.14.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line and multiline text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering with soft wrapping, diff rendering, resize handling, and clean shutdown.
+> **Status: v0.15.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line and multiline text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering with soft wrapping, diff rendering, resize handling, and clean shutdown.
 > Unix only (macOS, Linux, BSD).
 
 Ported from upstream commit [`e4ad586`](https://github.com/anomalyco/opentui/tree/e4ad5867eae1051a2c1877b08d88bbcaf12b7209).
@@ -67,7 +67,7 @@ err = r.Run(context.Background(), nil)
 - `Select` is a port of upstream's list: options with name, description and value; Up/K, Down/J, Shift+Up/Down (fast step 5), Enter; `OnChange`/`OnSelect` as upstream's `selectionChanged`/`itemSelected`; selection kept centered; optional scroll indicator, wrapping, item spacing. Beyond upstream: a click selects (a click on the selected item chooses it, and the clicked item stays under the pointer), the wheel moves the selection, `SetFilter` narrows by name or description, and it measures to its content when unsized. ASCII-art fonts are not supported.
 - `Styled(opts, spans...)` and `Node.SetSpans` show rich text, the counterpart of upstream's styled-text chunks: each `Span` has its own FG, BG, attributes and optional hyperlink, and spans may contain newlines. Build spans with `S("text").Bold().Fg(c)` or `Link(url, text)`. Styles survive wrapping and selection; a span boundary inside a grapheme cluster gives the cluster the first span's style. `SetText` returns to a single style.
 - Hyperlinks use OSC 8 and are sent only to terminals known to support them, as upstream: kitty, Ghostty, WezTerm, Alacritty, foot, iTerm2, VS Code, Zed, mintty, VTE ≥ 0.52.2, and WSL in Windows Terminal; never inside tmux/screen/zellij. `FORCE_HYPERLINK` or `Options.Hyperlinks` overrides. Link URLs have control bytes removed.
-- `TextOptions.Wrap` and `TextareaOptions.Wrap` soft-wrap lines: `WrapWord` breaks at Unicode line-break opportunities (falling back to character breaks for over-long words), `WrapChar` between any grapheme clusters. Wrapped `Text` grows taller in layout and reflows on resize; trailing spaces hang past the edge. Selecting across a soft wrap adds no newline. A wrapping `Textarea` keeps its last column for the cursor, and Up/Down move by visual row. The zero value is `WrapNone`; upstream defaults to word wrapping.
+- `TextOptions.Wrap` and `TextareaOptions.Wrap` soft-wrap lines: `WrapWord` breaks at Unicode line-break opportunities (falling back to character breaks for over-long words), `WrapChar` between any grapheme clusters. Wrapped `Text` grows taller in layout and reflows on resize; trailing spaces hang past the edge. Selecting across a soft wrap adds no newline. A wrapping `Textarea` keeps its last column for the cursor, and Up/Down move by visual row. The zero value, `WrapDefault`, wraps `Textarea` by word, as upstream's editor does, and leaves `Text` unwrapped (upstream `Text` wraps by word); pass `WrapNone` for an editor that scrolls long lines sideways.
 
 ## Testing
 
@@ -99,12 +99,13 @@ scripts/release-check.sh [ref]              # everything, on a clean checkout of
 | **v0.12.0** | Color capability detection: truecolor, 256-color, 16-color, and `NO_COLOR` |
 | **v0.13.0** | Styled text spans (colors, attributes, OSC 8 hyperlinks) |
 | **v0.14.0** | `Select` list widget with mouse, wheel and filtering |
+| **v0.15.0** | `Textarea` wraps by word by default, as upstream (`WrapDefault`) |
 
 ## Layout
 
 `Style` supports row/column directions (including reverse), grow and shrink, basis, fixed and percentage dimensions, min/max constraints, gap, padding, margins, justify/align, and absolute positioning. Layout is a pure-Go port of the supported Yoga 3.2.1 algorithm and is checked against 410 generated real-Yoga cases. It also carries OpenTUI's flex-shrink residue fix.
 
-## Known limitations (v0.14.0)
+## Known limitations (v0.15.0)
 
 - `Input` is still single-line and its public cursor offsets are rune indices; editing itself uses grapheme boundaries. Terminal width calculations use `uniseg` defaults and may differ from a particular terminal's emoji width settings.
 - Color mode is detected from `TERM`, `COLORTERM`, `WT_SESSION`, and `NO_COLOR`. It does not query the terminal. Unknown terminals still get truecolor, as upstream does. `Options.Color` can force a mode.

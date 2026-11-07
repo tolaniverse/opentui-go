@@ -7,20 +7,33 @@ import (
 	"github.com/rivo/uniseg"
 )
 
-// WrapMode controls soft wrapping of Text and Textarea lines. Upstream
-// offers the same three modes ("none", "char", "word") and defaults to
-// "word"; here the zero value is WrapNone so existing layouts do not
-// change.
+// WrapMode controls soft wrapping of Text and Textarea lines, with
+// upstream's three modes ("none", "char", "word").
 type WrapMode uint8
 
 const (
-	WrapNone WrapMode = iota // one row per line; overflow is clipped or scrolled
-	WrapChar                 // break between any two grapheme clusters
-	WrapWord                 // break at Unicode line-break opportunities
+	// WrapDefault (the zero value) is each widget's default: Textarea
+	// wraps by word, as upstream's editor does; Text does not wrap, so
+	// layouts written before wrapping existed do not reflow (upstream Text
+	// defaults to word).
+	WrapDefault WrapMode = iota
+	WrapNone             // one row per line; overflow is clipped or scrolled
+	WrapChar             // break between any two grapheme clusters
+	WrapWord             // break at Unicode line-break opportunities
 )
+
+// or returns m, or fallback when m is WrapDefault.
+func (m WrapMode) or(fallback WrapMode) WrapMode {
+	if m == WrapDefault {
+		return fallback
+	}
+	return m
+}
 
 func (m WrapMode) String() string {
 	switch m {
+	case WrapDefault:
+		return "default"
 	case WrapChar:
 		return "char"
 	case WrapWord:
@@ -49,7 +62,7 @@ type wrapCluster struct {
 // least one cluster. A word longer than width falls back to char breaks.
 // Width <= 0 or WrapNone returns one row.
 func wrapLine(line []rune, width int, mode WrapMode) []wrapRow {
-	if mode == WrapNone || width <= 0 || len(line) == 0 {
+	if mode == WrapNone || mode == WrapDefault || width <= 0 || len(line) == 0 {
 		return []wrapRow{{0, len(line), displayWidth(string(line))}}
 	}
 	if asciiOnlyRunes(line) && len(line) <= width {

@@ -445,3 +445,39 @@ func TestSelect(t *testing.T) {
 	s.waitText("Chosen: Haskell")
 	s.exitCleanly()
 }
+
+// A Textarea wraps by default, as upstream, and re-wraps when the
+// terminal is resized. Regression: v0.8-v0.14 defaulted to WrapNone, so a
+// line filling the width scrolled sideways instead of wrapping.
+func TestTextareaWrapsByDefault(t *testing.T) {
+	s := start(t, buildExample(t, "textarea"), 50, 14)
+	s.waitText("Ln 1, Col 1 · 1 line(s)")
+	text := strings.Repeat("abcdefghij", 9) + " and now some words that keep going past the edge"
+	s.send(text)
+	end := fmt.Sprintf("Ln 1, Col %d · 1 line(s)", len(text)+1)
+	s.waitText(end)
+	visible := func() bool {
+		_, startY, okStart := s.screen.Find("│ abcdefghij")
+		_, endY, okEnd := s.screen.Find("edge")
+		return okStart && okEnd && endY > startY
+	}
+	s.waitFor("start and end of the line both visible (wrapped)", visible)
+	s.screen.Resize(36, 14)
+	if err := pty.Setsize(s.tty, &pty.Winsize{Cols: 36, Rows: 14}); err != nil {
+		t.Fatal(err)
+	}
+	s.waitFor("re-wrapped to the narrower width", func() bool {
+		_, _, okEnd := s.screen.Find("edge")
+		lines := s.screen.Lines()
+		for _, l := range lines {
+			if len([]rune(l)) > 36 {
+				return false
+			}
+		}
+		return okEnd
+	})
+	s.send(" more")
+	s.waitText("edge more")
+	s.waitText(fmt.Sprintf("Ln 1, Col %d · 1 line(s)", len(text)+6))
+	s.exitCleanly()
+}

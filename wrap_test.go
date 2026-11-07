@@ -252,3 +252,26 @@ func FuzzTextareaWrapPaint(f *testing.F) {
 		}
 	})
 }
+
+// The zero WrapMode is each widget's default: Textarea wraps by word, as
+// upstream's editor; Text does not wrap.
+func TestWrapDefaults(t *testing.T) {
+	ta := Textarea(TextareaOptions{Value: "aaaa bbbb cccc", Style: Style{Width: Cells(6), Height: Cells(3)}})
+	if ta.textarea.opts.Wrap != WrapWord {
+		t.Fatalf("Textarea default wrap = %v, want word", ta.textarea.opts.Wrap)
+	}
+	b := draw(NewNode(Style{AlignItems: AlignStart}, ta), 6, 3)
+	if got := textareaRows(b, 3); !reflect.DeepEqual(got, []string{"aaaa  ", "bbbb  ", "cccc  "}) {
+		t.Fatalf("default Textarea rows: %q", got)
+	}
+	if none := Textarea(TextareaOptions{Wrap: WrapNone}); none.textarea.opts.Wrap != WrapNone {
+		t.Fatal("explicit WrapNone overridden")
+	}
+	tx := Text("aaaa bbbb", TextOptions{})
+	if tx.text.opts.Wrap != WrapNone {
+		t.Fatalf("Text default wrap = %v, want none", tx.text.opts.Wrap)
+	}
+	if WrapDefault.String() != "default" || WrapWord.String() != "word" {
+		t.Fatal("WrapMode names")
+	}
+}

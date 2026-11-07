@@ -33,9 +33,10 @@ type TextareaOptions struct {
 
 	SelectionFG, SelectionBG RGBA // zero values match Text's defaults
 
-	// Wrap soft-wraps long lines; WrapNone (the zero value) scrolls them
-	// horizontally instead. Wrapping keeps the last column free for the
-	// cursor. Up/Down then move by visual row.
+	// Wrap soft-wraps long lines. The zero value, WrapDefault, wraps by
+	// word, as upstream's editor; WrapNone scrolls long lines sideways
+	// instead. Wrapping keeps the last column free for the cursor, and
+	// Up/Down move by visual row.
 	Wrap WrapMode
 }
 
@@ -69,6 +70,7 @@ type textareaState struct {
 // Textarea returns a focusable, measured, multiline editor. Lines do not
 // soft-wrap; the view scrolls horizontally and vertically to the cursor.
 func Textarea(o TextareaOptions) *Node {
+	o.Wrap = o.Wrap.or(WrapWord)
 	if o.FG == (RGBA{}) {
 		o.FG = White
 	}

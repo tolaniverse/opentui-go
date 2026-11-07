@@ -232,7 +232,7 @@ func FuzzTextareaMouse(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, value string, ops []byte, w, h uint8, wrap bool) {
 		width, height := int(w%10)+1, int(h%5)+1
-		o := TextareaOptions{Value: value}
+		o := TextareaOptions{Value: value, Wrap: WrapNone}
 		if wrap {
 			o.Wrap = WrapWord
 		}

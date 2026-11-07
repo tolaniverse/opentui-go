@@ -98,7 +98,7 @@ func BenchmarkTextareaTypeAndDraw(b *testing.B) {
 			if strings.HasPrefix(kind, "unicode") {
 				line = "界é quick brown 👩🏽‍💻 jumps over the lazy dog"
 			}
-			wrap := WrapNone
+			wrap := WrapNone // explicit: Textarea wraps by default
 			if strings.HasSuffix(kind, "-wrap") {
 				wrap, line = WrapWord, strings.Repeat(line+" ", 4) // ~180 cells: 3 rows at 80
 			}

@@ -199,7 +199,7 @@ func TestTextareaPaintScrollsToCursor(t *testing.T) {
 
 func TestTextareaPaintHorizontalScrollByCells(t *testing.T) {
 	n := Textarea(TextareaOptions{
-		Value: "ab界cd\nxy",
+		Value: "ab界cd\nxy", Wrap: WrapNone,
 		Style: Style{Width: Cells(4), Height: Cells(2)},
 	})
 	root := NewNode(Style{AlignItems: AlignStart}, n)
