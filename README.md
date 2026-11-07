@@ -4,7 +4,7 @@ A pure-Go port of [OpenTUI](https://github.com/anomalyco/opentui), a library for
 
 Upstream OpenTUI pairs a Zig engine with a TypeScript API. This port reimplements both layers in Go, with no cgo and no Zig.
 
-> **Status: v0.8.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line and multiline text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering, diff rendering, resize handling, and clean shutdown.
+> **Status: v0.9.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line and multiline text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering with soft wrapping, diff rendering, resize handling, and clean shutdown.
 > Unix only (macOS, Linux, BSD).
 
 Ported from upstream commit [`e4ad586`](https://github.com/anomalyco/opentui/tree/e4ad5867eae1051a2c1877b08d88bbcaf12b7209).
@@ -23,6 +23,7 @@ Each example focuses on one part of the library:
 | `go run ./examples/mouse` | Hover, clicks with bubbling, drag-and-drop between zones |
 | `go run ./examples/unicode` | Wide characters, combining marks, emoji grapheme clusters |
 | `go run ./examples/textarea` | Multiline editing, multi-line paste, cursor-following scroll, submit |
+| `go run ./examples/wrap` | Word-wrapped text that reflows on resize, a wrapping editor, selection across soft wraps |
 
 Press Ctrl+C to quit; the terminal is restored.
 
@@ -58,6 +59,7 @@ err = r.Run(context.Background(), nil)
 - Dragging selectable `Text` creates a renderer-owned selection. Double-click selects a word and triple-click selects a line. Dragging past a `ScrollBox` edge auto-scrolls it, faster the further out the pointer is.
 - `Renderer.CopyToClipboard` sends text to the terminal's clipboard with OSC 52, so it works over SSH. Terminals may disable or size-limit OSC 52 and never confirm it.
 - `Text` measures, paints, clips, and selects Unicode grapheme clusters by terminal-cell width (including CJK and emoji sequences); plain ASCII keeps a fast path.
+- `TextOptions.Wrap` and `TextareaOptions.Wrap` soft-wrap lines: `WrapWord` breaks at Unicode line-break opportunities (falling back to character breaks for over-long words), `WrapChar` between any grapheme clusters. Wrapped `Text` grows taller in layout and reflows on resize; trailing spaces hang past the edge. Selecting across a soft wrap adds no newline. A wrapping `Textarea` keeps its last column for the cursor, and Up/Down move by visual row. The zero value is `WrapNone`; upstream defaults to word wrapping.
 
 ## Testing
 
@@ -83,20 +85,21 @@ scripts/release-check.sh [ref]              # everything, on a clean checkout of
 | **v0.6.0** | Grapheme-aware `Text` measurement, painting, clipping, selection, and frame diff; Unicode example |
 | **v0.7.0** | Grapheme-aware `Input` navigation, editing, limits, and horizontal scrolling |
 | **v0.8.0** | Multiline `Textarea` with grapheme-aware editing, multi-line paste, and two-axis scrolling |
+| **v0.9.0** | Soft wrapping (word and char) for `Text` and `Textarea`; selection across soft wraps |
 
 ## Layout
 
 `Style` supports row/column directions (including reverse), grow and shrink, basis, fixed and percentage dimensions, min/max constraints, gap, padding, margins, justify/align, and absolute positioning. Layout is a pure-Go port of the supported Yoga 3.2.1 algorithm and is checked against 410 generated real-Yoga cases. It also carries OpenTUI's flex-shrink residue fix.
 
-## Known limitations (v0.8.0)
+## Known limitations (v0.9.0)
 
 - `Input` is still single-line and its public cursor offsets are rune indices; editing itself uses grapheme boundaries. Terminal width calculations use `uniseg` defaults and may differ from a particular terminal's emoji width settings.
 - Truecolor is assumed; there is no terminal capability detection yet.
 - No hyperlinks, images or cursor control.
 - Clipboard copy is write-only OSC 52; there is no clipboard read and no tmux/screen passthrough wrapping yet.
-- `Textarea` has no soft wrapping, selection, undo/redo, mouse cursor placement, or wheel scrolling yet; all lines share one horizontal scroll offset.
+- `Textarea` has no selection, undo/redo, mouse cursor placement, or wheel scrolling yet; without wrapping, all lines share one horizontal scroll offset. Ctrl+A/E and Home/End act on logical lines and the buffer, not visual rows.
 - No flex wrapping, align-content, baseline alignment, aspect ratio, percentage padding/margins, or auto margins yet.
-- `Text` does not wrap and supports plain text only; styled spans arrive in a later release.
+- `Text` supports plain text only; styled spans arrive in a later release. Word-mode line breaking follows Unicode UAX #14 defaults via `uniseg`, without hyphenation or language-specific tailoring.
 
 ## License
 

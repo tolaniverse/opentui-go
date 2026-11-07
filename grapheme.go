@@ -16,11 +16,27 @@ func asciiOnly(s string) bool {
 	return true
 }
 
+// clusterWidth is the number of cells a grapheme cluster occupies, given
+// uniseg's width for it. Every measuring, wrapping, editing and painting
+// path uses this one rule: control characters take one cell because they
+// are painted as a space; other clusters use uniseg's width, which is 0
+// for a lone combining mark or a zero-width space (not painted).
+func clusterWidth(cluster string, width int) int {
+	if r, _ := utf8.DecodeRuneInString(cluster); r < 0x20 || r == 0x7f {
+		return 1
+	}
+	return width
+}
+
 func displayWidth(s string) int {
 	if asciiOnly(s) {
 		return len(s)
 	}
-	return uniseg.StringWidth(s)
+	width := 0
+	for g := uniseg.NewGraphemes(s); g.Next(); {
+		width += clusterWidth(g.Str(), g.Width())
+	}
+	return width
 }
 
 type textCluster struct {
@@ -33,10 +49,7 @@ func clusters(line string) []textCluster {
 	column := 0
 	g := uniseg.NewGraphemes(line)
 	for g.Next() {
-		width := g.Width()
-		if width <= 0 {
-			width = 1 // control characters paint as a space
-		}
+		width := clusterWidth(g.Str(), g.Width())
 		result = append(result, textCluster{g.Str(), column, column + width})
 		column += width
 	}

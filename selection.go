@@ -145,11 +145,14 @@ func (r *Renderer) updateTextSelections() {
 	type segment struct {
 		y, x int
 		text string
+		node *Node
+		row  int
 	}
 	var segments []segment
 	for _, n := range texts {
 		base := n.rect.Inset(n.Style.Padding)
-		for lineIndex, line := range n.text.lines {
+		for lineIndex, row := range n.text.visual(base.W) {
+			line := row.text
 			y := base.Y + lineIndex
 			if y < ay || y > fy {
 				continue
@@ -179,7 +182,7 @@ func (r *Renderer) updateTextSelections() {
 				continue
 			}
 			n.text.selection = append(n.text.selection, textSelection{line: lineIndex, start: from, end: to})
-			segments = append(segments, segment{y: y, x: base.X + from, text: text})
+			segments = append(segments, segment{y: y, x: base.X + from, text: text, node: n, row: lineIndex})
 		}
 	}
 	sort.SliceStable(segments, func(i, j int) bool {
@@ -189,15 +192,13 @@ func (r *Renderer) updateTextSelections() {
 		return segments[i].x < segments[j].x
 	})
 	var out strings.Builder
-	lastY := 0
 	for i, segment := range segments {
 		// Rows scrolled above the screen have negative y, so the first row
 		// is tracked by index rather than with a sentinel row number.
-		if i > 0 && segment.y != lastY {
+		if i > 0 && segment.y != segments[i-1].y && !softContinuation(segments[i-1].node, segments[i-1].row, segment.node, segment.row) {
 			out.WriteByte('\n')
 		}
 		out.WriteString(segment.text)
-		lastY = segment.y
 	}
 	r.selection.text = out.String()
 }
@@ -308,4 +309,14 @@ func (r *Renderer) drawFrame(b *Buffer) {
 		r.updateTextSelections()
 	}
 	Paint(r.root, b)
+}
+
+// softContinuation reports whether row b of node nb directly continues row a
+// of node na after a soft wrap, so selected text joins them without "\n".
+func softContinuation(na *Node, a int, nb *Node, b int) bool {
+	if na != nb || b != a+1 || nb.text == nil {
+		return false
+	}
+	rows := nb.text.rows
+	return b < len(rows) && rows[b].soft
 }

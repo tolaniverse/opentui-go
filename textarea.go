@@ -28,6 +28,11 @@ type TextareaOptions struct {
 	OnInput  func(value string) // every edit
 	OnChange func(value string) // blur or submit after a change
 	OnSubmit func(value string) // Meta/Alt+Enter
+
+	// Wrap soft-wraps long lines; WrapNone (the zero value) scrolls them
+	// horizontally instead. Wrapping keeps the last column free for the
+	// cursor. Up/Down then move by visual row.
+	Wrap WrapMode
 }
 
 // tabWidth is how many spaces a pasted or typed tab becomes. Cells hold
@@ -39,10 +44,16 @@ type textareaState struct {
 	line, col int      // cursor; col is a rune offset at a grapheme boundary
 	// goal is the terminal-cell column Up/Down aim for, so moving through
 	// a short line does not lose the column. -1 means "use the cursor's".
-	goal             int
-	scrollX, scrollY int // first visible cell column and line
-	committed        string
-	opts             TextareaOptions
+	goal    int
+	scrollX int // first visible cell column (WrapNone only)
+	// topLine/topRow is the first visible visual row: a logical line and a
+	// row within it (always 0 for WrapNone).
+	topLine, topRow int
+	// wrapWidth is the width rows were last wrapped to when painting; 0
+	// before the first paint or with WrapNone (one row per line).
+	wrapWidth int
+	committed string
+	opts      TextareaOptions
 }
 
 // Textarea returns a focusable, measured, multiline editor. Lines do not
@@ -68,13 +79,21 @@ func Textarea(o TextareaOptions) *Node {
 
 	n.measure = func(w float64, wm MeasureMode, h float64, hm MeasureMode) (float64, float64) {
 		s := n.textarea
-		width := 0
-		for _, line := range s.lines {
-			width = max(width, displayWidth(string(line)))
+		width, height := 0, 0
+		wrapAt := 0
+		if s.opts.Wrap != WrapNone && wm != MeasureUndefined {
+			wrapAt = max(int(w)-1, 1)
 		}
-		// One extra column so a cursor at the end of the longest line fits.
+		for _, line := range s.lines {
+			rows := wrapLine(line, wrapAt, s.opts.Wrap)
+			for _, row := range rows {
+				width = max(width, row.width)
+			}
+			height += len(rows)
+		}
+		// One extra column so a cursor at the end of the longest row fits.
 		width = max(width+1, displayWidth(s.opts.Placeholder))
-		return fit(float64(width), w, wm), fit(float64(len(s.lines)), h, hm)
+		return fit(float64(width), w, wm), fit(float64(height), h, hm)
 	}
 	n.paint = paintTextarea
 	n.keyHandler = n.handleTextareaKey
@@ -256,7 +275,7 @@ func colAtCell(line []rune, cell int) int {
 	}
 	col, used := 0, 0
 	for g := uniseg.NewGraphemes(string(line)); g.Next(); {
-		used += max(g.Width(), 1)
+		used += clusterWidth(g.Str(), g.Width())
 		if used > cell {
 			break
 		}
@@ -291,21 +310,7 @@ func (n *Node) handleTextareaKey(key *KeyEvent) {
 		handled = n.insertTextarea("\n")
 	case key.Name == "up", key.Name == "down":
 		vertical = true
-		if s.goal < 0 {
-			s.goal = cellColumn(line, s.col)
-		}
-		switch {
-		case key.Name == "up" && s.line > 0:
-			s.line--
-			s.col = colAtCell(s.lines[s.line], s.goal)
-		case key.Name == "up":
-			s.col = 0
-		case s.line < len(s.lines)-1:
-			s.line++
-			s.col = colAtCell(s.lines[s.line], s.goal)
-		default:
-			s.col = len(line)
-		}
+		n.moveVertical(key.Name == "up")
 	case key.Name == "left" || (key.Ctrl && key.Name == "b"):
 		switch {
 		case s.col > 0:
@@ -414,6 +419,68 @@ func (n *Node) handleTextareaKey(key *KeyEvent) {
 	}
 }
 
+// rowsOf returns the visual rows of line i at the last painted wrap width.
+// Without wrapping it is one row whose width is left 0: callers only need
+// the offsets, and measuring every visible line would cost a segmentation
+// pass per line per frame.
+func (s *textareaState) rowsOf(i int) []wrapRow {
+	if s.opts.Wrap == WrapNone || s.wrapWidth <= 0 {
+		return []wrapRow{{0, len(s.lines[i]), 0}}
+	}
+	return wrapLine(s.lines[i], s.wrapWidth, s.opts.Wrap)
+}
+
+// rowOf returns the visual row holding col. An offset equal to a row's end
+// belongs to the next row (the cursor is shown at its start), except on
+// the line's last row.
+func rowOf(rows []wrapRow, col int) int {
+	for k, row := range rows {
+		if col < row.end {
+			return k
+		}
+	}
+	return len(rows) - 1
+}
+
+// moveVertical moves the cursor one visual row up or down, aiming at the
+// remembered cell column within the row. At the top (bottom) it moves to
+// the start (end) and forgets the goal column.
+func (n *Node) moveVertical(up bool) {
+	s := n.textarea
+	rows := s.rowsOf(s.line)
+	k := rowOf(rows, s.col)
+	if s.goal < 0 {
+		s.goal = displayWidth(string(s.lines[s.line][rows[k].start:s.col]))
+	}
+	line, row := s.line, k
+	switch {
+	case up && k > 0:
+		row--
+	case up && s.line > 0:
+		line--
+		rows = s.rowsOf(line)
+		row = len(rows) - 1
+	case up:
+		s.col, s.goal = 0, -1
+		return
+	case k < len(rows)-1:
+		row++
+	case s.line < len(s.lines)-1:
+		line++
+		rows, row = s.rowsOf(line), 0
+	default:
+		s.col, s.goal = len(s.lines[s.line]), -1
+		return
+	}
+	text := s.lines[line]
+	r := rows[row]
+	col := r.start + colAtCell(text[r.start:r.end], s.goal)
+	if col == r.end && row < len(rows)-1 && col > r.start {
+		col = inputPrev(text, col) // r.end would be drawn on the next row
+	}
+	s.line, s.col = line, col
+}
+
 func paintTextarea(b *Buffer, n *Node) {
 	s := n.textarea
 	r := n.rect.Inset(n.Style.Padding)
@@ -434,36 +501,108 @@ func paintTextarea(b *Buffer, n *Node) {
 		return
 	}
 
-	// Keep the cursor's line and cell inside the viewport.
-	s.scrollY = min(s.scrollY, max(len(s.lines)-r.H, 0))
-	if s.line < s.scrollY {
-		s.scrollY = s.line
-	} else if s.line >= s.scrollY+r.H {
-		s.scrollY = s.line - r.H + 1
+	wrapping := s.opts.Wrap != WrapNone
+	s.wrapWidth = 0
+	if wrapping {
+		s.wrapWidth, s.scrollX = max(r.W-1, 1), 0
 	}
-	cur := s.lines[s.line]
-	cursorCell := cellColumn(cur, s.col)
-	glyph, glyphWidth := " ", 1
-	if s.col < len(cur) {
-		glyph = string(cur[s.col:inputNext(cur, s.col)])
-		glyphWidth = max(displayWidth(glyph), 1)
-	}
-	if cursorCell < s.scrollX {
-		s.scrollX = cursorCell
-	} else if cursorCell+glyphWidth > s.scrollX+r.W {
-		s.scrollX = cursorCell + glyphWidth - r.W
-	}
-	s.scrollX = max(s.scrollX, 0)
-
-	for row := 0; row < r.H && s.scrollY+row < len(s.lines); row++ {
-		drawTextareaLine(b, s.lines[s.scrollY+row], s.scrollX, r.W, r.X, r.Y+row, fg, bg)
-	}
-	if n.focused {
-		x := r.X + cursorCell - s.scrollX
-		if glyphWidth > r.X+r.W-x {
-			glyph = " "
+	// Rows of the lines this paint touches; scrolling visits only lines
+	// near the viewport, so cost follows its height, not the document.
+	var cache map[int][]wrapRow
+	var one [1]wrapRow // scratch for WrapNone: callers read a row at once
+	rowsOf := func(i int) []wrapRow {
+		if !wrapping {
+			one[0] = wrapRow{0, len(s.lines[i]), 0}
+			return one[:]
 		}
-		b.DrawText(glyph, x, r.Y+s.line-s.scrollY, fg, bg, AttrInverse)
+		if cache == nil {
+			cache = map[int][]wrapRow{}
+		}
+		rows, ok := cache[i]
+		if !ok {
+			rows = s.rowsOf(i)
+			cache[i] = rows
+		}
+		return rows
+	}
+	// back moves a visual position up by count rows, stopping at the top.
+	back := func(line, row, count int) (int, int) {
+		for ; count > 0; count-- {
+			if row > 0 {
+				row--
+			} else if line > 0 {
+				line--
+				row = len(rowsOf(line)) - 1
+			} else {
+				break
+			}
+		}
+		return line, row
+	}
+	// ahead counts visual rows from (line, row) until (toLine, toRow) or
+	// limit rows, whichever comes first; toLine < 0 means the end.
+	ahead := func(line, row, toLine, toRow, limit int) (int, bool) {
+		for count := 0; count < limit; count++ {
+			if line == toLine && row == toRow {
+				return count, true
+			}
+			if row++; row >= len(rowsOf(line)) {
+				if line++; line >= len(s.lines) {
+					return count + 1, false
+				}
+				row = 0
+			}
+		}
+		return limit, false // the target is limit or more rows away
+	}
+
+	s.topLine = min(max(s.topLine, 0), len(s.lines)-1)
+	s.topRow = min(max(s.topRow, 0), len(rowsOf(s.topLine))-1)
+	cur := s.lines[s.line]
+	curRows := rowsOf(s.line)
+	curRow := rowOf(curRows, s.col)
+	// Keep the cursor's visual row inside the viewport...
+	if s.line < s.topLine || (s.line == s.topLine && curRow < s.topRow) {
+		s.topLine, s.topRow = s.line, curRow
+	} else if _, ok := ahead(s.topLine, s.topRow, s.line, curRow, r.H); !ok {
+		s.topLine, s.topRow = back(s.line, curRow, r.H-1)
+	}
+	// ...and do not leave blank rows below the end when content shrinks.
+	if count, _ := ahead(s.topLine, s.topRow, -1, 0, r.H); count < r.H {
+		s.topLine, s.topRow = back(s.topLine, s.topRow, r.H-count)
+	}
+
+	// The cursor's cell within its row, and the glyph under it.
+	cursorCell := displayWidth(string(cur[curRows[curRow].start:s.col]))
+	glyphWidth := 1
+	if s.col < len(cur) {
+		glyphWidth = max(displayWidth(string(cur[s.col:inputNext(cur, s.col)])), 1)
+	}
+	if !wrapping {
+		if cursorCell < s.scrollX {
+			s.scrollX = cursorCell
+		} else if cursorCell+glyphWidth > s.scrollX+r.W {
+			s.scrollX = cursorCell + glyphWidth - r.W
+		}
+		s.scrollX = max(s.scrollX, 0)
+	}
+
+	line, row, cursorY := s.topLine, s.topRow, -1
+	for y := 0; y < r.H && line < len(s.lines); y++ {
+		rows := rowsOf(line)
+		span := rows[row]
+		drawTextareaLine(b, s.lines[line][span.start:span.end], s.scrollX, r.W, r.X, r.Y+y, fg, bg)
+		if line == s.line && row == curRow {
+			cursorY = y
+		}
+		if row++; row >= len(rows) {
+			line, row = line+1, 0
+		}
+	}
+	if n.focused && cursorY >= 0 {
+		// Past the edge (after hanging spaces): show it on the last column.
+		x := min(r.X+cursorCell-s.scrollX, r.X+r.W-1)
+		b.drawCursor(x, r.Y+cursorY)
 	}
 }
 
@@ -478,7 +617,7 @@ func drawTextareaLine(b *Buffer, line []rune, from, width, x, y int, fg, bg RGBA
 	}
 	cell := 0
 	for g := uniseg.NewGraphemes(string(line)); g.Next() && cell < from+width; {
-		w := max(g.Width(), 1)
+		w := clusterWidth(g.Str(), g.Width())
 		if cell >= from && cell+w <= from+width {
 			b.DrawText(g.Str(), x+cell-from, y, fg, bg, AttrNone)
 		}

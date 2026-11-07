@@ -3,6 +3,7 @@
 package ptycheck
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -188,5 +189,71 @@ func TestTextarea(t *testing.T) {
 
 	s.send("\x1b\r") // Alt+Enter
 	s.waitText("Submitted 23 line(s)")
+	s.exitCleanly()
+}
+
+var articleRowsRE = regexp.MustCompile(`Rows (\d+) · Ln (\d+), Col (\d+)`)
+
+func TestWrap(t *testing.T) {
+	s := start(t, buildExample(t, "wrap"), 100, 24)
+	s.waitText("END.")
+	status := func() (rows, line, col int) {
+		m := articleRowsRE.FindStringSubmatch(strings.Join(s.screen.Lines(), "\n"))
+		if m == nil {
+			return -1, -1, -1
+		}
+		fmt.Sscan(m[1], &rows)
+		fmt.Sscan(m[2], &line)
+		fmt.Sscan(m[3], &col)
+		return rows, line, col
+	}
+	s.waitFor("status", func() bool { r, _, _ := status(); return r > 1 })
+	wide, _, _ := status()
+
+	// Narrower terminal: the article reflows onto more rows.
+	s.screen.Resize(60, 24)
+	if err := pty.Setsize(s.tty, &pty.Winsize{Cols: 60, Rows: 24}); err != nil {
+		t.Fatal(err)
+	}
+	s.waitFor("article reflows to more rows", func() bool { r, _, _ := status(); return r > wide })
+	s.waitText("END.")
+
+	// A long editor line wraps across visual rows but stays one line.
+	sentence := "alpha beta gamma delta epsilon zeta eta theta iota kappa"
+	s.send(sentence)
+	s.waitFor("cursor at end of the sentence", func() bool {
+		_, line, col := status()
+		return line == 1 && col == len(sentence)+1
+	})
+	_, alphaY, ok1 := s.screen.Find("alpha")
+	_, kappaY, ok2 := s.screen.Find("kappa")
+	if !ok1 || !ok2 || kappaY <= alphaY {
+		t.Fatalf("editor line did not wrap: alpha row %d (%v), kappa row %d (%v)", alphaY, ok1, kappaY, ok2)
+	}
+	// Up moves one visual row within the same logical line.
+	s.send("\x1b[A")
+	s.waitFor("up moves within the wrapped line", func() bool {
+		_, line, col := status()
+		return line == 1 && col > 1 && col < len(sentence)+1
+	})
+
+	// Selecting across a soft wrap in the article joins rows without "\n".
+	x, y := s.waitText("Soft wrapping")
+	s.send(sgrMouse(0, x, y, true))
+	s.send(sgrMouse(32, x+3, y+1, true))
+	s.send(sgrMouse(0, x+3, y+1, false))
+	// The first row runs from x to the panel's right border.
+	firstRow := []rune(s.screen.Lines()[y])[x:]
+	firstRow = firstRow[:strings.IndexRune(string(firstRow), '│')]
+	firstLen := len([]rune(strings.TrimRight(string(firstRow), " ")))
+	selRE := regexp.MustCompile(`Sel (\d+) chars, (\d+) newlines`)
+	s.waitFor("selection status", func() bool { return selRE.MatchString(strings.Join(s.screen.Lines(), "\n")) })
+	m := selRE.FindStringSubmatch(strings.Join(s.screen.Lines(), "\n"))
+	var chars, newlines int
+	fmt.Sscan(m[1], &chars)
+	fmt.Sscan(m[2], &newlines)
+	if chars <= firstLen || newlines != 0 {
+		t.Fatalf("selection across a soft wrap: %d chars (first row %d), %d newlines; want more chars and 0 newlines", chars, firstLen, newlines)
+	}
 	s.exitCleanly()
 }

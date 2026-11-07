@@ -15,19 +15,59 @@ type TextOptions struct {
 	NoSelect    bool
 	SelectionFG RGBA
 	SelectionBG RGBA
+	// Wrap soft-wraps lines to the node's width. The zero value, WrapNone,
+	// keeps one row per line (upstream defaults to word wrapping).
+	Wrap WrapMode
 }
 
 type textState struct {
 	lines     []string
 	opts      TextOptions
-	selection []textSelection
+	selection []textSelection // indexes refer to visual rows
+
+	// rows caches the visual rows for rowsWidth; nil after SetText.
+	rows      []visualRow
+	rowsWidth int
+}
+
+// visualRow is one painted row of a Text: line is the logical line index,
+// text the row's content, and soft reports that the row continues the
+// previous row of the same logical line.
+type visualRow struct {
+	line  int
+	text  string
+	width int
+	soft  bool
+}
+
+// visual returns the rows of the text at width cells (ignored for
+// WrapNone), recomputing only when the width or the content changed.
+func (t *textState) visual(width int) []visualRow {
+	if t.opts.Wrap == WrapNone {
+		width = -1
+	}
+	if t.rows != nil && t.rowsWidth == width {
+		return t.rows
+	}
+	t.rows, t.rowsWidth = t.rows[:0], width
+	for i, line := range t.lines {
+		if width < 0 {
+			t.rows = append(t.rows, visualRow{line: i, text: line, width: displayWidth(line)})
+			continue
+		}
+		runes := []rune(line)
+		for k, row := range wrapLine(runes, width, t.opts.Wrap) {
+			t.rows = append(t.rows, visualRow{line: i, text: string(runes[row.start:row.end]), width: row.width, soft: k > 0})
+		}
+	}
+	return t.rows
 }
 
 // Text returns a leaf node that shows content. Lines split on "\n".
 // Its natural size is the longest line × the number of lines.
 //
-// v0.2.0 is a simplified stand-in for upstream TextRenderable: no
-// wrapping or styled spans.
+// It is a simplified stand-in for upstream TextRenderable: plain text only,
+// no styled spans. Set TextOptions.Wrap to soft-wrap to the node's width.
 func Text(content string, o TextOptions) *Node {
 	n := NewNode(o.Style)
 	n.ID, n.ZIndex = o.ID, o.ZIndex
@@ -46,11 +86,21 @@ func Text(content string, o TextOptions) *Node {
 	// measure is Yoga's "measure function": how a leaf tells layout how
 	// big its content is, within the limits it is given.
 	n.measure = func(w float64, wm MeasureMode, h float64, hm MeasureMode) (float64, float64) {
-		cw := 0
-		for _, l := range n.text.lines {
-			cw = max(cw, displayWidth(l))
+		// Wrapping text is as tall as its rows at the width it is offered
+		// (Yoga asks again with each candidate width).
+		width := -1
+		if n.text.opts.Wrap != WrapNone && wm != MeasureUndefined {
+			width = max(int(w), 1)
 		}
-		return fit(float64(cw), w, wm), fit(float64(len(n.text.lines)), h, hm)
+		if width < 0 {
+			width = 1 << 30 // no limit: wrapLine returns whole lines
+		}
+		rows := n.text.visual(width)
+		cw := 0
+		for _, row := range rows {
+			cw = max(cw, row.width)
+		}
+		return fit(float64(cw), w, wm), fit(float64(len(rows)), h, hm)
 	}
 	n.paint = paintText
 	return n
@@ -71,6 +121,7 @@ func fit(content, limit float64, m MeasureMode) float64 {
 func (n *Node) SetText(content string) {
 	if n.text != nil {
 		n.text.lines = strings.Split(content, "\n")
+		n.text.rows = nil
 	}
 }
 
@@ -93,14 +144,15 @@ func paintText(b *Buffer, n *Node) {
 	if o.BG.A > 0 {
 		b.FillRect(r.X, r.Y, r.W, r.H, o.BG)
 	}
-	for i, line := range n.text.lines {
-		b.DrawText(line, r.X, r.Y+i, o.FG, o.BG, o.Attr)
+	rows := n.text.visual(r.W)
+	for i, row := range rows {
+		b.DrawText(row.text, r.X, r.Y+i, o.FG, o.BG, o.Attr)
 	}
 	for _, selected := range n.text.selection {
-		if selected.line < 0 || selected.line >= len(n.text.lines) {
+		if selected.line < 0 || selected.line >= len(rows) {
 			continue
 		}
-		line := n.text.lines[selected.line]
+		line := rows[selected.line].text
 		selectedText, start, _ := selectedColumns(line, selected.start, selected.end)
 		if selectedText != "" {
 			b.DrawText(selectedText, r.X+start, r.Y+selected.line, o.SelectionFG, o.SelectionBG, o.Attr)

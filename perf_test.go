@@ -92,13 +92,18 @@ func BenchmarkDrawDocument(b *testing.B) {
 // BenchmarkTextareaTypeAndDraw is one keystroke plus a full frame on a
 // 2,000-line document, cursor at the end.
 func BenchmarkTextareaTypeAndDraw(b *testing.B) {
-	for _, kind := range []string{"ascii", "unicode"} {
+	for _, kind := range []string{"ascii", "unicode", "ascii-wrap", "unicode-wrap"} {
 		b.Run(kind, func(b *testing.B) {
 			line := "The quick brown fox jumps over the lazy dog"
-			if kind == "unicode" {
+			if strings.HasPrefix(kind, "unicode") {
 				line = "界é quick brown 👩🏽‍💻 jumps over the lazy dog"
 			}
+			wrap := WrapNone
+			if strings.HasSuffix(kind, "-wrap") {
+				wrap, line = WrapWord, strings.Repeat(line+" ", 4) // ~180 cells: 3 rows at 80
+			}
 			n := Textarea(TextareaOptions{
+				Wrap:  wrap,
 				Value: strings.Repeat(line+"\n", 2000),
 				Style: Style{Width: Cells(80), Height: Cells(24)},
 			})
@@ -115,5 +120,26 @@ func BenchmarkTextareaTypeAndDraw(b *testing.B) {
 				Draw(root, buf)
 			}
 		})
+	}
+}
+
+// BenchmarkDrawWrappedDocument lays out and paints 200 word-wrapped
+// paragraphs in a scrolling box, the wrapped counterpart of
+// BenchmarkDrawDocument.
+func BenchmarkDrawWrappedDocument(b *testing.B) {
+	para := strings.Repeat("Selectable content for a scrolling terminal document, wrapped by word. ", 3)
+	rows := make([]*Node, 200)
+	for i := range rows {
+		rows[i] = Text(fmt.Sprintf("%03d %s", i, para), TextOptions{Wrap: WrapWord})
+	}
+	scroll := ScrollBox(ScrollBoxOptions{BoxOptions: BoxOptions{Style: Style{FlexGrow: 1}}}, rows...)
+	root := NewNode(Style{}, scroll)
+	buf := NewBuffer(80, 24)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		buf.Clear(Transparent)
+		scroll.ScrollTo(0, i%500)
+		Draw(root, buf)
 	}
 }

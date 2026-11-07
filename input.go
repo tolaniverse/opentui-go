@@ -344,7 +344,7 @@ func paintInput(b *Buffer, n *Node) {
 	runePos := 0
 	for g := uniseg.NewGraphemes(string(s.value)); g.Next(); {
 		end := runePos + utf8.RuneCountInString(g.Str())
-		parts = append(parts, part{runePos, end, max(g.Width(), 1)})
+		parts = append(parts, part{runePos, end, clusterWidth(g.Str(), g.Width())})
 		runePos = end
 	}
 	startIndex, cursorIndex := 0, len(parts)
@@ -387,18 +387,8 @@ func paintInput(b *Buffer, n *Node) {
 		b.DrawText(string(s.value[s.viewStart:end]), r.X, r.Y, fg, bg, AttrNone)
 	}
 	if n.focused {
-		x := r.X + column
-		if x >= r.X && x < r.X+r.W {
-			glyph := " "
-			if cursorIndex < len(parts) {
-				p := parts[cursorIndex]
-				glyph = string(s.value[p.start:p.end])
-			}
-			if glyphWidth <= r.X+r.W-x {
-				b.DrawText(glyph, x, r.Y, fg, bg, AttrInverse)
-			} else {
-				b.DrawText(" ", x, r.Y, fg, bg, AttrInverse)
-			}
+		if x := r.X + column; x >= r.X && x < r.X+r.W {
+			b.drawCursor(x, r.Y)
 		}
 	}
 }

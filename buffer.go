@@ -295,3 +295,22 @@ func (b *Buffer) FillRect(x, y, w, h int, bg RGBA) {
 		}
 	}
 }
+
+// drawCursor shows a text cursor at x, y by inverting the cell already
+// painted there, so it is visible over any glyph, a blank, or a cell after
+// the end of the text. On a wide glyph it inverts every cell of the glyph.
+// Redrawing the glyph instead fails for zero-width clusters and for a
+// translucent background, where a space only tints what is under it.
+func (b *Buffer) drawCursor(x, y int) {
+	if !b.inBounds(x, y) {
+		return
+	}
+	row := y * b.width
+	start := x
+	for start > 0 && b.cells[row+start].Continuation {
+		start--
+	}
+	for col := start; col < b.width && (col == start || b.cells[row+col].Continuation); col++ {
+		b.cells[row+col].Attr |= AttrInverse
+	}
+}
