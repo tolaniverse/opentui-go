@@ -74,7 +74,7 @@ func main() {
 	}
 	r.Root().Style = tui.Style{Gap: 1}
 	r.Root().Add(box(" Filter ", filter, 0), box(" Languages ", list, 1), status,
-		tui.Text("Up/Down or K/J move · Shift jumps · Enter or click chooses · Ctrl+C quit", tui.TextOptions{FG: muted, Attr: tui.AttrDim}))
+		tui.Text("Up/Down or K/J move · Shift jumps · Enter or click chooses · Ctrl+C quit", tui.TextOptions{FG: muted, Attr: tui.AttrDim, Wrap: tui.WrapWord}))
 	r.Focus(list)
 
 	if err := r.Run(context.Background(), nil); err != nil {

@@ -436,13 +436,15 @@ func TestSelect(t *testing.T) {
 	// Clicking the selected item chooses it again; clear the filter first.
 	s.send("\t\x15") // back to the filter, Ctrl+U clears it
 	s.waitText("12 match(es)")
-	x, y := s.waitText("Haskell") // visible: the list is centered on Python
+	// TypeScript sits right above the selected Python, so it stays in view
+	// whatever height the list gets.
+	x, y := s.waitText("TypeScript")
 	s.send(sgrMouse(0, x, y, true))
 	s.send(sgrMouse(0, x, y, false))
-	s.waitText("Highlighted: Haskell")
+	s.waitText("Highlighted: TypeScript")
 	s.send(sgrMouse(0, x, y, true))
 	s.send(sgrMouse(0, x, y, false))
-	s.waitText("Chosen: Haskell")
+	s.waitText("Chosen: TypeScript")
 	s.exitCleanly()
 }
 
@@ -476,6 +478,8 @@ func TestTextareaWrapsByDefault(t *testing.T) {
 		}
 		return okEnd
 	})
+	// The hint line wraps too instead of being cut off at the edge.
+	s.waitText("Ctrl+C quit")
 	s.send(" more")
 	s.waitText("edge more")
 	s.waitText(fmt.Sprintf("Ln 1, Col %d · 1 line(s)", len(text)+6))

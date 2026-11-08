@@ -72,7 +72,7 @@ func main() {
 		Style: tui.Style{FlexGrow: 1, Gap: 1, Padding: tui.All(1), Overflow: tui.Hidden},
 	}, nameField, emailField, status)
 
-	footer := tui.Text("Tab / Shift+Tab focus  •  paste text  •  Enter submit  •  Esc blur  •  Ctrl+C quit", tui.TextOptions{FG: muted, Attr: tui.AttrDim})
+	footer := tui.Text("Tab / Shift+Tab focus  •  paste text  •  Enter submit  •  Esc blur  •  Ctrl+C quit", tui.TextOptions{FG: muted, Attr: tui.AttrDim, Wrap: tui.WrapWord})
 	r.Root().Style = tui.Style{Gap: 1}
 	r.Root().Add(header, form, footer)
 	r.SetKeyHandler(func(key *tui.KeyEvent) {

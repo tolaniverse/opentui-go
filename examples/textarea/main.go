@@ -53,7 +53,7 @@ func main() {
 	}, editor)
 	statusRow := tui.NewNode(tui.Style{Height: tui.Cells(1)})
 	footer := tui.Text("Enter newline  •  Alt+Enter submit  •  drag to select + copy  •  wheel scrolls  •  Ctrl+C quit",
-		tui.TextOptions{FG: muted, Attr: tui.AttrDim})
+		tui.TextOptions{FG: muted, Attr: tui.AttrDim, Wrap: tui.WrapWord})
 
 	r.Root().Style = tui.Style{Gap: 1}
 	r.Root().Add(box, statusRow, footer)

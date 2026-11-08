@@ -48,7 +48,7 @@ func main() {
 		Title: " opentui-go · document ", TitleColor: accent,
 		Style: tui.Style{Height: tui.Cells(3), Padding: tui.XY(1, 0)},
 	}, tui.Text("Pure Go mouse input · scrolling · text selection", tui.TextOptions{FG: tui.White}))
-	footer := tui.Text("Wheel/arrows/scrollbar scroll  •  drag selects + copies  •  Ctrl+C quit", tui.TextOptions{FG: muted, Attr: tui.AttrDim})
+	footer := tui.Text("Wheel/arrows/scrollbar scroll  •  drag selects + copies  •  Ctrl+C quit", tui.TextOptions{FG: muted, Attr: tui.AttrDim, Wrap: tui.WrapWord})
 
 	r.Root().Style = tui.Style{Gap: 1}
 	r.Root().Add(header, scroll, status, footer)

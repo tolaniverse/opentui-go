@@ -55,7 +55,7 @@ func main() {
 	row := tui.NewNode(tui.Style{Direction: tui.Row, FlexGrow: 1, Gap: 1}, left, right)
 	statusRow := tui.NewNode(tui.Style{Height: tui.Cells(1)})
 	footer := tui.Text("Drag the article to select  •  Up/Down move by visual row  •  Ctrl+C quit",
-		tui.TextOptions{FG: muted, Attr: tui.AttrDim})
+		tui.TextOptions{FG: muted, Attr: tui.AttrDim, Wrap: tui.WrapWord})
 
 	r.Root().Style = tui.Style{Gap: 1}
 	r.Root().Add(row, statusRow, footer)
