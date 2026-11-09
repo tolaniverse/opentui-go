@@ -6,8 +6,6 @@ import (
 	"encoding/base64"
 	"strings"
 	"testing"
-
-	"github.com/creack/pty"
 )
 
 func TestDocument(t *testing.T) {
@@ -91,10 +89,7 @@ func TestDocument(t *testing.T) {
 	}
 
 	// Resize: the document box must reflow to the new width.
-	s.screen.Resize(110, 30)
-	if err := pty.Setsize(s.tty, &pty.Winsize{Cols: 110, Rows: 30}); err != nil {
-		t.Fatalf("resize: %v", err)
-	}
+	s.resize(110, 30)
 	s.waitFor("reflow to 110 columns", func() bool {
 		for _, line := range s.screen.Lines() {
 			if strings.HasPrefix(line, "┌─ Document") && len([]rune(line)) == 110 {

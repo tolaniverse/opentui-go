@@ -1,5 +1,3 @@
-//go:build unix
-
 // styled shows rich text: bold, italic, underlined and colored spans in one
 // word-wrapped Text, plus an OSC 8 hyperlink. Links are sent only to
 // terminals known to support them (FORCE_HYPERLINK=1 forces them on).

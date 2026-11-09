@@ -1,5 +1,3 @@
-//go:build unix
-
 // document shows a ScrollBox (wheel, keys, and a draggable scrollbar) and
 // text selection with auto-scroll and OSC 52 clipboard copy.
 //

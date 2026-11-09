@@ -1,5 +1,3 @@
-//go:build unix
-
 // color shows the detected color mode and a colored cell. Detection uses
 // TERM, COLORTERM, and NO_COLOR; Options.Color can force a mode.
 //

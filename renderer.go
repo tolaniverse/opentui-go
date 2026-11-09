@@ -1,5 +1,3 @@
-//go:build unix
-
 package opentui
 
 import (
@@ -7,12 +5,9 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 
-	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 
 	"github.com/tolaniverse/opentui-go/ansi"
@@ -69,6 +64,7 @@ type Renderer struct {
 	in, out  *os.File
 	w        *bufio.Writer
 	oldState *term.State
+	platform platformState // per-OS terminal state, restored by Close
 
 	current *Buffer // what the terminal shows right now
 	next    *Buffer // what the app is drawing for the next frame
@@ -140,6 +136,11 @@ func New(opts Options) (*Renderer, error) {
 	// delivered as byte 0x03 instead of killing the process.
 	r.oldState, err = term.MakeRaw(int(r.in.Fd()))
 	if err != nil {
+		return nil, err
+	}
+	// Windows consoles interpret escape sequences only when asked to.
+	if err := r.enableTerminalOutput(); err != nil {
+		term.Restore(int(r.in.Fd()), r.oldState)
 		return nil, err
 	}
 
@@ -254,8 +255,9 @@ func (r *Renderer) Close() error {
 			r.w.WriteString(ansi.AltScreenExit)
 		}
 		flushErr := r.w.Flush()
+		outputErr := r.restoreTerminalOutput()
 		restoreErr := term.Restore(int(r.in.Fd()), r.oldState)
-		r.closeErr = errors.Join(flushErr, restoreErr)
+		r.closeErr = errors.Join(flushErr, outputErr, restoreErr)
 	})
 	return r.closeErr
 }
@@ -279,9 +281,10 @@ func (r *Renderer) Run(ctx context.Context, draw func(b *Buffer)) (err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// Quit signals and terminal resizes arrive on one channel: SIGWINCH on
+	// Unix, a size poll on Windows (which has no resize signal).
 	sigs := make(chan os.Signal, 4)
-	signal.Notify(sigs, syscall.SIGWINCH, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-	defer signal.Stop(sigs)
+	defer r.notifySignals(ctx, sigs)()
 
 	readerDone := make(chan struct{})
 	defer func() { cancel(); <-readerDone }() // wait so no read outlives Run
@@ -307,7 +310,7 @@ func (r *Renderer) Run(ctx context.Context, draw func(b *Buffer)) (err error) {
 		case <-ctx.Done():
 			return nil
 		case s := <-sigs:
-			if s != syscall.SIGWINCH {
+			if !isResizeSignal(s) {
 				return nil
 			}
 			w, h, err := term.GetSize(int(r.out.Fd()))
@@ -347,50 +350,24 @@ func (r *Renderer) Run(ctx context.Context, draw func(b *Buffer)) (err error) {
 	}
 }
 
-// readInput decodes terminal input. It polls with a timeout both to notice
-// cancellation and to distinguish a lone Escape from an Alt-prefixed key.
-func (r *Renderer) readInput(ctx context.Context, done chan<- struct{}) {
-	defer close(done)
-	fd := int(r.in.Fd())
-	buf := make([]byte, 256)
-	decoder := keyDecoder{}
-	emit := func(events []terminalEvent) bool {
-		for _, event := range events {
-			select {
-			case r.inputEvents <- event:
-			case <-ctx.Done():
-				return false
-			}
-		}
-		return true
-	}
-	for ctx.Err() == nil {
-		fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
-		n, err := unix.Poll(fds, int((50 * time.Millisecond).Milliseconds()))
-		if err != nil {
-			if errors.Is(err, unix.EINTR) { // a signal (e.g. SIGWINCH) interrupted the wait
-				continue
-			}
-			return
-		}
-		if n == 0 {
-			if !emit(decoder.Flush()) {
-				return
-			}
-			continue
-		}
-		if fds[0].Revents&unix.POLLIN == 0 {
-			continue
-		}
-		m, err := unix.Read(fd, buf)
-		if err != nil || m == 0 {
-			return
-		}
-		if !emit(decoder.Feed(buf[:m])) {
-			return
+// emitInput sends decoded events to Run, or reports false once ctx ends.
+func (r *Renderer) emitInput(ctx context.Context, events []terminalEvent) bool {
+	for _, event := range events {
+		select {
+		case r.inputEvents <- event:
+		case <-ctx.Done():
+			return false
 		}
 	}
+	return true
 }
+
+// resizeSignal is sent on the signal channel when the terminal size
+// changes on a platform without a resize signal.
+type resizeSignal struct{}
+
+func (resizeSignal) String() string { return "terminal resized" }
+func (resizeSignal) Signal()        {}
 
 // ColorMode returns the color mode in use: Options.Color, or the mode
 // detected from the environment when that was ColorAuto.

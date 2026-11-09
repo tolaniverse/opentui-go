@@ -1,26 +1,34 @@
-//go:build unix
-
 package ptycheck
 
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/creack/pty"
 )
+
+// terminal is a pseudo-terminal running one program: a Unix PTY
+// (pty_unix_test.go) or a Windows pseudo console (conpty_windows_test.go).
+// Reads return what the program draws; writes are typed input.
+type terminal interface {
+	io.ReadWriter
+	Resize(w, h int) error
+	Kill()
+	Wait() error // waits for the program to exit
+	Close() error
+}
 
 // session is one example program running in a pseudo-terminal.
 type session struct {
 	t       *testing.T
-	cmd     *exec.Cmd
-	tty     *os.File
+	term    terminal
 	screen  *Screen
 	exited  chan struct{} // closed when the program exits; then waitErr is set
 	waitErr error
@@ -39,6 +47,9 @@ func (s *session) rawContains(sub string) bool {
 func buildExample(t *testing.T, name string) string {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), name)
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
 	cmd := exec.Command("go", "build", "-o", bin, "./examples/"+name)
 	cmd.Dir = filepath.Join("..", "..")
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -53,21 +64,32 @@ func start(t *testing.T, bin string, w, h int) *session {
 	return startEnv(t, bin, w, h, cleanEnv("TERM=xterm-256color", "COLORTERM=truecolor"))
 }
 
+// cleanEnv is the test process environment without terminal-detection
+// variables, so each case sets exactly what it tests.
+func cleanEnv(extra ...string) []string {
+	skip := map[string]bool{"TERM": true, "COLORTERM": true, "NO_COLOR": true, "WT_SESSION": true,
+		"TERM_PROGRAM": true, "VTE_VERSION": true, "TMUX": true, "STY": true, "ZELLIJ": true,
+		"FORCE_HYPERLINK": true, "WSL_DISTRO_NAME": true, "WSL_INTEROP": true}
+	var out []string
+	for _, e := range os.Environ() {
+		if name, _, _ := strings.Cut(e, "="); !skip[name] {
+			out = append(out, e)
+		}
+	}
+	return append(out, extra...)
+}
+
 func startEnv(t *testing.T, bin string, w, h int, env []string) *session {
 	t.Helper()
-	cmd := exec.Command(bin)
-	if env != nil {
-		cmd.Env = env
-	}
-	tty, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: uint16(w), Rows: uint16(h)})
+	term, err := startTerminal(bin, env, w, h)
 	if err != nil {
-		t.Fatalf("start pty: %v", err)
+		t.Fatalf("start %s: %v", filepath.Base(bin), err)
 	}
-	s := &session{t: t, cmd: cmd, tty: tty, screen: NewScreen(w, h), exited: make(chan struct{})}
+	s := &session{t: t, term: term, screen: NewScreen(w, h), exited: make(chan struct{})}
 	go func() {
 		buf := make([]byte, 64*1024)
 		for {
-			n, err := tty.Read(buf)
+			n, err := term.Read(buf)
 			if n > 0 {
 				s.screen.Write(buf[:n])
 				s.rawMu.Lock()
@@ -79,23 +101,32 @@ func startEnv(t *testing.T, bin string, w, h int, env []string) *session {
 			}
 		}
 	}()
-	go func() { s.waitErr = cmd.Wait(); close(s.exited) }()
+	go func() { s.waitErr = term.Wait(); close(s.exited) }()
 	t.Cleanup(func() {
-		// Only the Wait goroutine may touch cmd.ProcessState, so always kill
-		// (harmless after exit) and then wait for that goroutine to finish.
-		cmd.Process.Kill()
+		// Only the Wait goroutine may observe the exit, so always kill
+		// (harmless after exit) and then wait for that goroutine.
+		term.Kill()
 		select {
 		case <-s.exited:
 		case <-time.After(5 * time.Second):
 		}
-		tty.Close()
+		term.Close()
 	})
 	return s
 }
 
+// resize changes the terminal size and the emulated screen together.
+func (s *session) resize(w, h int) {
+	s.t.Helper()
+	s.screen.Resize(w, h)
+	if err := s.term.Resize(w, h); err != nil {
+		s.t.Fatal(err)
+	}
+}
+
 func (s *session) send(data string) {
 	s.t.Helper()
-	if _, err := s.tty.Write([]byte(data)); err != nil {
+	if _, err := s.term.Write([]byte(data)); err != nil {
 		s.t.Fatalf("write: %v", err)
 	}
 }
@@ -143,6 +174,11 @@ func (s *session) exitCleanly() {
 		s.t.Fatal("did not exit on Ctrl+C")
 	}
 	time.Sleep(50 * time.Millisecond) // let the reader drain final output
+	// ConPTY re-encodes output and owns private modes, so a Windows run
+	// cannot prove the process reset them. A Unix PTY shows the raw sequences.
+	if runtime.GOOS == "windows" {
+		return
+	}
 	for _, mode := range []int{1003, 1006, 2004, 1049} {
 		if s.screen.Mode(mode) {
 			s.t.Errorf("mode %d left enabled after exit", mode)

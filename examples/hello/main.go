@@ -1,5 +1,3 @@
-//go:build unix
-
 // hello is the smallest complete opentui-go program: one bordered box with
 // text, centred on screen. Ctrl+C quits and restores the terminal.
 //

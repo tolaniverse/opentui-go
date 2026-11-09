@@ -4,8 +4,8 @@ A pure-Go port of [OpenTUI](https://github.com/anomalyco/opentui), a library for
 
 Upstream OpenTUI pairs a Zig engine with a TypeScript API. This port reimplements both layers in Go, with no cgo and no Zig.
 
-> **Status: v0.16.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line and multiline text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering with soft wrapping, diff rendering, resize handling, and clean shutdown.
-> Unix only (macOS, Linux, BSD).
+> **Status: v0.17.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line and multiline text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering with soft wrapping, diff rendering, resize handling, and clean shutdown.
+> macOS, Linux, and Windows. BSD builds; it is not in CI.
 
 Ported from upstream commit [`e4ad586`](https://github.com/anomalyco/opentui/tree/e4ad5867eae1051a2c1877b08d88bbcaf12b7209).
 See [compatibility and missing features](COMPATIBILITY.md) before treating it as an upstream replacement.
@@ -44,7 +44,7 @@ r.Focus(document)
 err = r.Run(context.Background(), nil)
 ```
 
-`Run` handles decoded keyboard and bracketed-paste input, Ctrl+C, SIGINT, SIGTERM, SIGHUP, and resizes. It restores the terminal on every exit path, including a panic in your draw function.
+`Run` handles decoded keyboard and bracketed-paste input, Ctrl+C, SIGINT, SIGTERM, SIGHUP, and resizes. On Windows, resize is polled (there is no SIGWINCH) and the console is switched into virtual-terminal mode. It restores the terminal on every exit path, including a panic in your draw function.
 
 ## Keyboard and focus
 
@@ -77,7 +77,7 @@ go test -race ./...                         # library unit tests
 scripts/release-check.sh [ref]              # everything, on a clean checkout of ref
 ```
 
-`tools/ptycheck` is a separate module, so the library keeps no test-only dependencies. It runs every example in a pseudo-terminal, drives it with real key, paste, and mouse sequences, and checks an emulated screen, including clean exit and terminal-mode cleanup. Run `scripts/release-check.sh` before tagging; it checks only what is committed.
+`tools/ptycheck` is a separate module, so the library keeps no test-only dependencies. On Linux and macOS it runs every example in a pseudo-terminal, drives it with real key, paste, and mouse sequences, and checks an emulated screen, including clean exit and terminal-mode cleanup. On Windows the same harness uses a pseudoconsole (ConPTY) for three smoke tests (hello, input, textarea wrap and resize). ConPTY re-encodes output, so those tests check visible text, not exact escape sequences. Run `scripts/release-check.sh` before tagging; it checks only what is committed, and cross-compiles for Windows.
 
 `go test -run '^$' -bench . -benchmem .` runs the benchmarks: frame encoding (unchanged, one-cell, full), layout and paint of plain and wrapped documents, a full Unicode screen, and editor keystrokes. Frame encoding does not allocate (a test enforces it). On an Apple M1 (Go 1.26.2, 80×24), v0.16.0 encodes an unchanged frame in ~7.5 µs and a full repaint in ~24 µs, down from ~15 µs and ~34 µs in v0.15.0, by storing a cell's grapheme cluster and link in one interned handle; drawing is statistically unchanged (benchstat, n=10). These are local Go measurements, not comparisons with upstream Zig; rerun on your machine for relevant numbers.
 
@@ -101,18 +101,20 @@ scripts/release-check.sh [ref]              # everything, on a clean checkout of
 | **v0.14.0** | `Select` list widget with mouse, wheel and filtering |
 | **v0.15.0** | `Textarea` wraps by word by default, as upstream (`WrapDefault`) |
 | **v0.16.0** | Performance: 2× faster frame diff, allocation-free frame encoding (breaking: `Cell.Grapheme`/`Cell.Link` are methods) |
+| **v0.17.0** | Windows console support (virtual-terminal mode, polled resize) and ConPTY smoke tests in CI |
 
 ## Layout
 
 `Style` supports row/column directions (including reverse), grow and shrink, basis, fixed and percentage dimensions, min/max constraints, gap, padding, margins, justify/align, and absolute positioning. Layout is a pure-Go port of the supported Yoga 3.2.1 algorithm and is checked against 410 generated real-Yoga cases. It also carries OpenTUI's flex-shrink residue fix.
 
-## Known limitations (v0.16.0)
+## Known limitations (v0.17.0)
 
 - `Input` is still single-line and its public cursor offsets are rune indices; editing itself uses grapheme boundaries. Terminal width calculations use `uniseg` defaults and may differ from a particular terminal's emoji width settings.
 - Color mode is detected from `TERM`, `COLORTERM`, `WT_SESSION`, and `NO_COLOR`. It does not query the terminal. Unknown terminals still get truecolor, as upstream does. `Options.Color` can force a mode.
 - No images or terminal cursor control. `Textarea` and `Input` contents are plain text (no spans).
 - Clipboard copy is write-only OSC 52; there is no clipboard read and no tmux/screen passthrough wrapping yet.
 - `Textarea` has no triple-click line selection; holding a drag still past the edge does not keep scrolling (each pointer move scrolls one row). Without wrapping, all lines share one horizontal scroll offset. Ctrl+A/E and Home/End act on logical lines and the buffer, not visual rows.
+- Windows resize is noticed by polling, about every 100 ms. Windows CI runs three ConPTY smoke tests, not the full Unix PTY suite; exact escape sequences are not checked there because ConPTY re-encodes them.
 - No flex wrapping, align-content, baseline alignment, aspect ratio, percentage padding/margins, or auto margins yet.
 - Word-mode line breaking follows Unicode UAX #14 defaults via `uniseg`, without hyphenation or language-specific tailoring.
 

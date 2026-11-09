@@ -1,5 +1,3 @@
-//go:build unix
-
 // wrap shows soft wrapping: a word-wrapped article that reflows when the
 // terminal is resized, beside a word-wrapping editor where Up/Down move by
 // visual row. Drag across the article to select; a soft wrap adds no "\n".

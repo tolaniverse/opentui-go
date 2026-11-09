@@ -1,5 +1,3 @@
-//go:build unix
-
 // layout shows a renderable tree, Yoga-compatible flex layout, boxes,
 // borders, titles, clipping, live updates from another goroutine, and resize
 // handling.

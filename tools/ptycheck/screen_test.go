@@ -33,3 +33,13 @@ func TestScreenSplitSequencesModesAndOSC(t *testing.T) {
 		t.Fatal("mode not reset")
 	}
 }
+
+// ConPTY re-encodes absolute cursor moves as relative ones. The emulator
+// must follow those or Windows smoke tests look at the wrong cells.
+func TestScreenRelativeCursor(t *testing.T) {
+	s := NewScreen(6, 3)
+	s.Write([]byte("ab\x1b[1D\x1b[1BX\x1b[1A\x1b[1CY"))
+	if got := s.Lines(); got[0] != "ab Y" || got[1] != " X" {
+		t.Fatalf("rows = %#v", got)
+	}
+}

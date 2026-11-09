@@ -21,9 +21,10 @@ type Cell struct {
 	BGSet bool
 }
 
-// Screen is a minimal terminal emulator. It understands exactly the output
-// the opentui-go renderer produces: CUP cursor moves, SGR colors, private
-// mode set/reset, erase display, OSC strings, and UTF-8 text. Checking the
+// Screen is a minimal terminal emulator. It understands the output the
+// opentui-go renderer produces (CUP, SGR, private modes, erase display, OSC,
+// UTF-8 text) plus the relative cursor moves ConPTY emits when it re-encodes
+// that output. Checking the
 // emulated screen, rather than searching raw output bytes, is necessary
 // because diff rendering never re-sends cells that did not change.
 type Screen struct {
@@ -239,8 +240,23 @@ func (s *Screen) csi(params string, final byte) {
 		return def
 	}
 	switch final {
-	case 'H':
+	case 'H', 'f':
 		s.y, s.x = num(0, 1)-1, num(1, 1)-1
+		s.hasLast = false
+	case 'A':
+		s.y -= max(num(0, 1), 1)
+		s.hasLast = false
+	case 'B':
+		s.y += max(num(0, 1), 1)
+		s.hasLast = false
+	case 'C':
+		s.x += max(num(0, 1), 1)
+		s.hasLast = false
+	case 'D':
+		s.x -= max(num(0, 1), 1)
+		s.hasLast = false
+	case 'G':
+		s.x = num(0, 1) - 1
 		s.hasLast = false
 	case 'J':
 		if num(0, 0) == 2 {

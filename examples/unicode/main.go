@@ -1,5 +1,3 @@
-//go:build unix
-
 // unicode shows terminal-cell layout for wide characters, combining marks,
 // and emoji grapheme clusters. Ctrl+C restores the terminal.
 //

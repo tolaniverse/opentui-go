@@ -13,7 +13,14 @@ jobs:
   test:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            race: -race
+          - os: macos-latest
+            race: -race
+          # windows-latest has no C compiler, and -race needs one.
+          - os: windows-latest
+            race: ""
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -23,10 +30,10 @@ jobs:
       - name: Library
         run: |
           go vet ./...
-          go test -count=1 -race ./...
+          go test -count=1 ${{ matrix.race }} ./...
           go build ./...
       - name: PTY end-to-end
         working-directory: tools/ptycheck
         run: |
           go vet ./...
-          go test -count=1 -race ./...
+          go test -count=1 ${{ matrix.race }} ./...

@@ -5,12 +5,9 @@ package ptycheck
 import (
 	"encoding/base64"
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 	"testing"
-
-	"github.com/creack/pty"
 )
 
 func TestHello(t *testing.T) {
@@ -60,10 +57,7 @@ func TestLayout(t *testing.T) {
 		}
 	}
 	s.waitFor("panels span 90 columns", panelsSpan(90))
-	s.screen.Resize(60, 20)
-	if err := pty.Setsize(s.tty, &pty.Winsize{Cols: 60, Rows: 20}); err != nil {
-		t.Fatal(err)
-	}
+	s.resize(60, 20)
 	s.waitFor("panels reflow to 60 columns", panelsSpan(60))
 	s.exitCleanly()
 }
@@ -213,10 +207,7 @@ func TestWrap(t *testing.T) {
 	wide, _, _ := status()
 
 	// Narrower terminal: the article reflows onto more rows.
-	s.screen.Resize(60, 24)
-	if err := pty.Setsize(s.tty, &pty.Winsize{Cols: 60, Rows: 24}); err != nil {
-		t.Fatal(err)
-	}
+	s.resize(60, 24)
 	s.waitFor("article reflows to more rows", func() bool { r, _, _ := status(); return r > wide })
 	s.waitText("END.")
 
@@ -324,21 +315,6 @@ func TestColorModes(t *testing.T) {
 			s.exitCleanly()
 		})
 	}
-}
-
-// cleanEnv is the test process environment without terminal-detection
-// variables, so each case sets exactly what it tests.
-func cleanEnv(extra ...string) []string {
-	skip := map[string]bool{"TERM": true, "COLORTERM": true, "NO_COLOR": true, "WT_SESSION": true,
-		"TERM_PROGRAM": true, "VTE_VERSION": true, "TMUX": true, "STY": true, "ZELLIJ": true,
-		"FORCE_HYPERLINK": true, "WSL_DISTRO_NAME": true, "WSL_INTEROP": true}
-	var out []string
-	for _, e := range os.Environ() {
-		if name, _, _ := strings.Cut(e, "="); !skip[name] {
-			out = append(out, e)
-		}
-	}
-	return append(out, extra...)
 }
 
 func TestStyled(t *testing.T) {
@@ -464,10 +440,7 @@ func TestTextareaWrapsByDefault(t *testing.T) {
 		return okStart && okEnd && endY > startY
 	}
 	s.waitFor("start and end of the line both visible (wrapped)", visible)
-	s.screen.Resize(36, 14)
-	if err := pty.Setsize(s.tty, &pty.Winsize{Cols: 36, Rows: 14}); err != nil {
-		t.Fatal(err)
-	}
+	s.resize(36, 14)
 	s.waitFor("re-wrapped to the narrower width", func() bool {
 		_, _, okEnd := s.screen.Find("edge")
 		lines := s.screen.Lines()

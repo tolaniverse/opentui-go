@@ -1,5 +1,3 @@
-//go:build unix
-
 // input shows single-line text inputs, keyboard decoding, Tab/Shift+Tab
 // focus traversal, bracketed paste, and submit callbacks.
 //

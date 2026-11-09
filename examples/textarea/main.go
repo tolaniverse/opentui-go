@@ -1,5 +1,3 @@
-//go:build unix
-
 // textarea shows a multiline editor: Enter for new lines, arrows across
 // lines, Ctrl+A/E line start/end, Home/End buffer start/end, multi-line
 // paste, and Alt+Enter to submit. With the mouse: click to place the

@@ -1,5 +1,3 @@
-//go:build unix
-
 // select shows a Select list: Up/Down or K/J move, Shift+Up/Down jump by
 // five, Enter chooses, a click selects and a click on the selected item
 // chooses, and the wheel moves the selection. Typing in the filter field

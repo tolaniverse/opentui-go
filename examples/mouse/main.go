@@ -1,5 +1,3 @@
-//go:build unix
-
 // mouse shows pointer events: hover (over/out), clicks with bubbling, and
 // drag-and-drop with capture. Drag the card between the three zones.
 //
