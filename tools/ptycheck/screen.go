@@ -206,8 +206,15 @@ func (s *Screen) put(r rune) {
 			return
 		}
 	}
+	width := max(uniseg.StringWidth(string(r)), 1)
+	// A terminal wraps on the next printable glyph after reaching the last
+	// column, not when the last column is painted. ConPTY often sends an
+	// entire screen as contiguous rows with no CUP between them.
+	if s.w > 0 && s.x+width > s.w {
+		s.x = 0
+		s.y++
+	}
 	if s.y >= 0 && s.y < s.h && s.x >= 0 && s.x < s.w {
-		width := max(uniseg.StringWidth(string(r)), 1)
 		s.cells[s.y][s.x] = Cell{Char: r, BG: s.bg, BGSet: s.bgSet}
 		if width == 2 && s.x+1 < s.w {
 			s.cells[s.y][s.x+1] = Cell{Char: ' ', Cont: true, BG: s.bg, BGSet: s.bgSet}
@@ -257,6 +264,20 @@ func (s *Screen) csi(params string, final byte) {
 		s.hasLast = false
 	case 'G':
 		s.x = num(0, 1) - 1
+		s.hasLast = false
+	case 'X': // erase n characters without moving the cursor
+		if s.y >= 0 && s.y < s.h {
+			for x := max(s.x, 0); x < min(s.x+max(num(0, 1), 1), s.w); x++ {
+				s.cells[s.y][x] = Cell{Char: ' ', BG: s.bg, BGSet: s.bgSet}
+			}
+		}
+		s.hasLast = false
+	case 'K': // erase from the cursor to the end of the line
+		if num(0, 0) == 0 && s.y >= 0 && s.y < s.h {
+			for x := max(s.x, 0); x < s.w; x++ {
+				s.cells[s.y][x] = Cell{Char: ' ', BG: s.bg, BGSet: s.bgSet}
+			}
+		}
 		s.hasLast = false
 	case 'J':
 		if num(0, 0) == 2 {

@@ -43,3 +43,11 @@ func TestScreenRelativeCursor(t *testing.T) {
 		t.Fatalf("rows = %#v", got)
 	}
 }
+
+func TestScreenConPTYFullWidthRowsAndErase(t *testing.T) {
+	s := NewScreen(8, 3)
+	s.Write([]byte("\x1b[Habcdefghijk\x1b[2Xl\x1b[K"))
+	if got := s.Lines(); got[0] != "abcdefgh" || got[1] != "ijkl" {
+		t.Fatalf("rows = %#v", got)
+	}
+}
