@@ -1,4 +1,4 @@
-# Upstream compatibility (v0.15.0)
+# Upstream compatibility (v0.16.0)
 
 This is a **partial, idiomatic Go port**, not a drop-in replacement for
 OpenTUI's TypeScript or Zig APIs. The comparison is pinned to upstream commit

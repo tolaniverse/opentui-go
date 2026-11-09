@@ -29,8 +29,8 @@ func rowText(b *Buffer, y int) string {
 		c, _ := b.Get(x, y)
 		switch {
 		case c.Continuation:
-		case c.Grapheme != "":
-			s.WriteString(c.Grapheme)
+		case c.Grapheme() != "":
+			s.WriteString(c.Grapheme())
 		default:
 			s.WriteRune(c.Char)
 		}

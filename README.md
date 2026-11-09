@@ -4,7 +4,7 @@ A pure-Go port of [OpenTUI](https://github.com/anomalyco/opentui), a library for
 
 Upstream OpenTUI pairs a Zig engine with a TypeScript API. This port reimplements both layers in Go, with no cgo and no Zig.
 
-> **Status: v0.15.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line and multiline text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering with soft wrapping, diff rendering, resize handling, and clean shutdown.
+> **Status: v0.16.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line and multiline text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering with soft wrapping, diff rendering, resize handling, and clean shutdown.
 > Unix only (macOS, Linux, BSD).
 
 Ported from upstream commit [`e4ad586`](https://github.com/anomalyco/opentui/tree/e4ad5867eae1051a2c1877b08d88bbcaf12b7209).
@@ -79,7 +79,7 @@ scripts/release-check.sh [ref]              # everything, on a clean checkout of
 
 `tools/ptycheck` is a separate module, so the library keeps no test-only dependencies. It runs every example in a pseudo-terminal, drives it with real key, paste, and mouse sequences, and checks an emulated screen, including clean exit and terminal-mode cleanup. Run `scripts/release-check.sh` before tagging; it checks only what is committed.
 
-`go test -run '^$' -bench 'Benchmark(EncodeFrame|DrawDocument)' -benchmem .` measures unchanged, one-cell, and full-frame diffs plus layout/paint of a 200-row scroll document. On an Apple M1 (Go 1.26.2, 80×24), batching ANSI numeric sequences reduced full-frame encoding from ~35.8 µs / 720 allocations to ~25.5 µs / 216 allocations per frame. These are local Go measurements, not comparisons with upstream Zig; rerun on your machine for relevant numbers.
+`go test -run '^$' -bench . -benchmem .` runs the benchmarks: frame encoding (unchanged, one-cell, full), layout and paint of plain and wrapped documents, a full Unicode screen, and editor keystrokes. Frame encoding does not allocate (a test enforces it). On an Apple M1 (Go 1.26.2, 80×24), v0.16.0 encodes an unchanged frame in ~7.5 µs and a full repaint in ~24 µs, down from ~15 µs and ~34 µs in v0.15.0, by storing a cell's grapheme cluster and link in one interned handle; drawing is statistically unchanged (benchstat, n=10). These are local Go measurements, not comparisons with upstream Zig; rerun on your machine for relevant numbers.
 
 ## Roadmap
 
@@ -100,12 +100,13 @@ scripts/release-check.sh [ref]              # everything, on a clean checkout of
 | **v0.13.0** | Styled text spans (colors, attributes, OSC 8 hyperlinks) |
 | **v0.14.0** | `Select` list widget with mouse, wheel and filtering |
 | **v0.15.0** | `Textarea` wraps by word by default, as upstream (`WrapDefault`) |
+| **v0.16.0** | Performance: 2× faster frame diff, allocation-free frame encoding (breaking: `Cell.Grapheme`/`Cell.Link` are methods) |
 
 ## Layout
 
 `Style` supports row/column directions (including reverse), grow and shrink, basis, fixed and percentage dimensions, min/max constraints, gap, padding, margins, justify/align, and absolute positioning. Layout is a pure-Go port of the supported Yoga 3.2.1 algorithm and is checked against 410 generated real-Yoga cases. It also carries OpenTUI's flex-shrink residue fix.
 
-## Known limitations (v0.15.0)
+## Known limitations (v0.16.0)
 
 - `Input` is still single-line and its public cursor offsets are rune indices; editing itself uses grapheme boundaries. Terminal width calculations use `uniseg` defaults and may differ from a particular terminal's emoji width settings.
 - Color mode is detected from `TERM`, `COLORTERM`, `WT_SESSION`, and `NO_COLOR`. It does not query the terminal. Unknown terminals still get truecolor, as upstream does. `Options.Color` can force a mode.

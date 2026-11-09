@@ -52,7 +52,7 @@ func TestStyledSpansAcrossLinesAndWraps(t *testing.T) {
 func TestStyledSpanBoundaryInsideClusterTakesFirstStyle(t *testing.T) {
 	n := Styled(TextOptions{}, S("e"), S("́x").Fg(red))
 	b := draw(NewNode(Style{AlignItems: AlignStart}, n), 4, 1)
-	if c, _ := b.Get(0, 0); c.Grapheme != "é" || c.FG != White {
+	if c, _ := b.Get(0, 0); c.Grapheme() != "é" || c.FG != White {
 		t.Fatalf("cluster split across spans: %+v", c)
 	}
 	if c, _ := b.Get(1, 0); c.Char != 'x' || c.FG != red {
@@ -74,10 +74,10 @@ func TestStyledSelectionKeepsAttributesAndLinks(t *testing.T) {
 	if c, _ := b.Get(1, 0); c.BG != n.text.opts.SelectionBG || c.Attr != AttrBold {
 		t.Fatalf("selected bold cell: %+v", c)
 	}
-	if c, _ := b.Get(2, 0); c.BG != n.text.opts.SelectionBG || c.Link != "https://example.com" {
+	if c, _ := b.Get(2, 0); c.BG != n.text.opts.SelectionBG || c.Link() != "https://example.com" {
 		t.Fatalf("selected link cell: %+v", c)
 	}
-	if c, _ := b.Get(3, 0); c.Link != "https://example.com" || c.BG == n.text.opts.SelectionBG {
+	if c, _ := b.Get(3, 0); c.Link() != "https://example.com" || c.BG == n.text.opts.SelectionBG {
 		t.Fatalf("unselected link cell: %+v", c)
 	}
 }
@@ -108,9 +108,9 @@ func encodeLinks(enabled bool, cells ...Cell) string {
 
 func TestHyperlinkEncoding(t *testing.T) {
 	url := "https://example.com/a?b=c"
-	link := Cell{Char: 'g', FG: White, BG: Transparent, Link: url}
+	link := Cell{Char: 'g', FG: White, BG: Transparent}.WithLink(url)
 	plain := Cell{Char: 'p', FG: White, BG: Transparent}
-	got := encodeLinks(true, link, Cell{Char: 'o', FG: White, BG: Transparent, Link: url}, plain)
+	got := encodeLinks(true, link, Cell{Char: 'o', FG: White, BG: Transparent}.WithLink(url), plain)
 	open, closeLink := "\x1b]8;id=1;"+url+"\x1b\\", "\x1b]8;;\x1b\\"
 	if !strings.Contains(got, open+"go"+closeLink) {
 		t.Fatalf("link not wrapped around its cells: %q", got)
@@ -140,8 +140,8 @@ func TestLinkURLIsSanitized(t *testing.T) {
 	n := Styled(TextOptions{}, Link("https://x\x1b]0;pwned\x07/y", "z"))
 	b := draw(NewNode(Style{AlignItems: AlignStart}, n), 2, 1)
 	c, _ := b.Get(0, 0)
-	if strings.ContainsAny(c.Link, "\x1b\x07") || c.Link != "https://x]0;pwned/y" {
-		t.Fatalf("control bytes kept in link: %q", c.Link)
+	if strings.ContainsAny(c.Link(), "\x1b\x07") || c.Link() != "https://x]0;pwned/y" {
+		t.Fatalf("control bytes kept in link: %q", c.Link())
 	}
 }
 

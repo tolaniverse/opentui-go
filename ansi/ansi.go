@@ -7,7 +7,6 @@ package ansi
 import (
 	"encoding/base64"
 	"io"
-	"strconv"
 )
 
 // Fixed sequences. CSI = "\x1b[".
@@ -41,58 +40,60 @@ const (
 )
 
 // Writer is the minimal interface we need. *bufio.Writer and *bytes.Buffer
-// both satisfy it, so sequences can be built without allocating strings.
+// both satisfy it. Sequences are written with WriteByte, WriteRune and
+// WriteString only: a byte slice passed through this interface counts as
+// escaping, so building sequences in a local array would allocate on
+// every call.
 type Writer interface {
 	io.Writer
 	WriteString(s string) (int, error)
 	WriteByte(c byte) error
+	WriteRune(r rune) (int, error)
+}
+
+// writeDec writes a non-negative decimal number one byte at a time.
+func writeDec(w Writer, n int) {
+	if n >= 10 {
+		writeDec(w, n/10)
+	}
+	w.WriteByte(byte('0' + n%10))
 }
 
 // MoveTo writes CUP (cursor position). x and y are 1-based, like the terminal.
 func MoveTo(w Writer, x, y int) {
-	var buf [48]byte
-	out := append(buf[:0], "\x1b["...)
-	out = strconv.AppendInt(out, int64(y), 10)
-	out = append(out, ';')
-	out = strconv.AppendInt(out, int64(x), 10)
-	out = append(out, 'H')
-	w.Write(out)
+	w.WriteString("\x1b[")
+	writeDec(w, y)
+	w.WriteByte(';')
+	writeDec(w, x)
+	w.WriteByte('H')
 }
 
 // FgRGB writes a 24-bit "truecolor" foreground: CSI 38;2;r;g;b m.
-func FgRGB(w Writer, r, g, b uint8) { sgrRGB(w, 38, r, g, b) }
+func FgRGB(w Writer, r, g, b uint8) { sgrRGB(w, "\x1b[38;2;", r, g, b) }
 
 // BgRGB writes a 24-bit background: CSI 48;2;r;g;b m.
-func BgRGB(w Writer, r, g, b uint8) { sgrRGB(w, 48, r, g, b) }
+func BgRGB(w Writer, r, g, b uint8) { sgrRGB(w, "\x1b[48;2;", r, g, b) }
 
 // FgIndexed writes a 256-palette foreground: CSI 38;5;n m.
-func FgIndexed(w Writer, n uint8) { sgrIndexed(w, 38, n) }
+func FgIndexed(w Writer, n uint8) { sgrIndexed(w, "\x1b[38;5;", n) }
 
 // BgIndexed writes a 256-palette background: CSI 48;5;n m.
-func BgIndexed(w Writer, n uint8) { sgrIndexed(w, 48, n) }
+func BgIndexed(w Writer, n uint8) { sgrIndexed(w, "\x1b[48;5;", n) }
 
-func sgrRGB(w Writer, code int, r, g, b uint8) {
-	var buf [32]byte
-	out := append(buf[:0], "\x1b["...)
-	out = strconv.AppendInt(out, int64(code), 10)
-	out = append(out, ';', '2', ';')
-	out = strconv.AppendInt(out, int64(r), 10)
-	out = append(out, ';')
-	out = strconv.AppendInt(out, int64(g), 10)
-	out = append(out, ';')
-	out = strconv.AppendInt(out, int64(b), 10)
-	out = append(out, 'm')
-	w.Write(out)
+func sgrRGB(w Writer, prefix string, r, g, b uint8) {
+	w.WriteString(prefix)
+	writeDec(w, int(r))
+	w.WriteByte(';')
+	writeDec(w, int(g))
+	w.WriteByte(';')
+	writeDec(w, int(b))
+	w.WriteByte('m')
 }
 
-func sgrIndexed(w Writer, code int, n uint8) {
-	var buf [24]byte
-	out := append(buf[:0], "\x1b["...)
-	out = strconv.AppendInt(out, int64(code), 10)
-	out = append(out, ';', '5', ';')
-	out = strconv.AppendInt(out, int64(n), 10)
-	out = append(out, 'm')
-	w.Write(out)
+func sgrIndexed(w Writer, prefix string, n uint8) {
+	w.WriteString(prefix)
+	writeDec(w, int(n))
+	w.WriteByte('m')
 }
 
 // SetTitle writes OSC 0 (window/icon title).
@@ -124,11 +125,9 @@ func Basic(w Writer, index uint8, background bool) {
 	if background {
 		code += 10
 	}
-	var buf [8]byte
-	out := append(buf[:0], "\x1b["...)
-	out = strconv.AppendInt(out, int64(code), 10)
-	out = append(out, 'm')
-	w.Write(out)
+	w.WriteString("\x1b[")
+	writeDec(w, code)
+	w.WriteByte('m')
 }
 
 // LinkEnd closes an OSC 8 hyperlink.
@@ -138,11 +137,9 @@ const LinkEnd = "\x1b]8;;\x1b\\"
 // ESC ] 8 ; id=N ; url ST. The id lets terminals treat the pieces of one
 // link that are split across rows or runs as a single link.
 func LinkStart(w Writer, id int, url string) {
-	var buf [24]byte
-	out := append(buf[:0], "\x1b]8;id="...)
-	out = strconv.AppendInt(out, int64(id), 10)
-	out = append(out, ';')
-	w.Write(out)
+	w.WriteString("\x1b]8;id=")
+	writeDec(w, id)
+	w.WriteByte(';')
 	w.WriteString(url)
 	w.WriteString("\x1b\\")
 }

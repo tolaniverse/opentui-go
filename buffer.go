@@ -2,6 +2,7 @@ package opentui
 
 import (
 	"unicode/utf8"
+	"unique"
 
 	"github.com/rivo/uniseg"
 )
@@ -25,21 +26,107 @@ const (
 	AttrNone Attr = 0
 )
 
-// Cell is one terminal position. A wide grapheme occupies a leading cell and
-// a continuation cell. Grapheme is empty for ordinary single-rune cells.
+// Cell is one terminal position. A glyph wider than one cell occupies a
+// leading cell and continuation cells. Port of `Cell` in upstream
+// buffer.zig.
 //
-// Port of `Cell` in upstream buffer.zig. v0.1.0 stores one rune per cell and
-// treats every rune as one column wide; wide characters and grapheme
-// clusters come in a later release.
+// Char is the glyph's first rune. A multi-rune grapheme cluster (an
+// accented letter, an emoji sequence) and an OSC 8 link are stored in one
+// interned handle (Go's unique package), so comparing cells, which diff
+// rendering does for every cell of every frame, costs one pointer compare
+// for them. Read them with Grapheme and Link; set them with WithGrapheme
+// and WithLink.
 type Cell struct {
 	Char         rune
-	Grapheme     string
-	Continuation bool
 	FG           RGBA
 	BG           RGBA
 	Attr         Attr
-	// Link is the URL of an OSC 8 hyperlink over this cell, or "".
-	Link string
+	Continuation bool
+	ext          unique.Handle[cellExt] // zero: single-rune glyph, no link
+}
+
+// cellExt is the rarely used part of a cell, interned per distinct value.
+type cellExt struct {
+	cluster string // the full grapheme cluster when it has several runes
+	link    string
+}
+
+func makeExt(cluster, link string) unique.Handle[cellExt] {
+	if cluster == "" && link == "" {
+		return unique.Handle[cellExt]{}
+	}
+	return unique.Make(cellExt{cluster, link})
+}
+
+func (c Cell) extValue() cellExt {
+	if c.ext == (unique.Handle[cellExt]{}) {
+		return cellExt{}
+	}
+	return c.ext.Value()
+}
+
+// Grapheme returns the text the cell shows: its grapheme cluster, or ""
+// for a continuation or unpainted cell.
+func (c Cell) Grapheme() string {
+	if c.Continuation || c.Char == 0 {
+		return ""
+	}
+	if g := c.extValue().cluster; g != "" {
+		return g
+	}
+	return string(c.Char)
+}
+
+// Link returns the URL of the OSC 8 hyperlink over the cell, or "".
+func (c Cell) Link() string { return c.extValue().link }
+
+// WithGrapheme returns c showing the grapheme cluster g (Char becomes its
+// first rune). Draw text with Buffer.DrawText to have it segmented for you.
+func (c Cell) WithGrapheme(g string) Cell {
+	r, size := utf8.DecodeRuneInString(g)
+	c.Char = r
+	cluster := ""
+	if size < len(g) {
+		cluster = g
+	}
+	c.ext = makeExt(cluster, c.Link())
+	return c
+}
+
+// WithLink returns c with an OSC 8 hyperlink to url ("" removes it).
+func (c Cell) WithLink(url string) Cell {
+	c.ext = makeExt(c.extValue().cluster, sanitizeLink(url))
+	return c
+}
+
+// cluster is the stored multi-rune cluster, or "" when Char alone is the
+// glyph.
+func (c Cell) cluster() string { return c.extValue().cluster }
+
+// width is how many cells the glyph occupies. The fast path is small
+// enough to inline: it runs for every cell write, often several times.
+func (c Cell) width() int {
+	if c.ext == (unique.Handle[cellExt]{}) && c.Char < 0x1100 {
+		return 1
+	}
+	return c.slowWidth()
+}
+
+func (c Cell) slowWidth() int {
+	if g := c.cluster(); g != "" {
+		return max(uniseg.StringWidth(g), 1)
+	}
+	return runeWidth(c.Char)
+}
+
+// runeWidth is the cell width of a single-rune glyph. Nothing below U+1100
+// is wide, which keeps Latin and most other text off the uniseg path.
+func runeWidth(r rune) int {
+	if r < 0x1100 {
+		return 1
+	}
+	var buf [utf8.UTFMax]byte
+	return max(uniseg.StringWidth(string(utf8.AppendRune(buf[:0], r))), 1)
 }
 
 // clearChar marks cells that have never been painted. Nothing draws it, so
@@ -143,10 +230,7 @@ func (b *Buffer) Get(x, y int) (c Cell, ok bool) {
 // Set overwrites a cell without blending. Out-of-bounds writes are ignored.
 func (b *Buffer) Set(x, y int, c Cell) {
 	if b.inBounds(x, y) {
-		width := 1
-		if c.Grapheme != "" {
-			width = max(uniseg.StringWidth(c.Grapheme), 1)
-		}
+		width := c.width()
 		if !b.inBounds(x+width-1, y) {
 			return // never store half a wide glyph
 		}
@@ -161,15 +245,19 @@ func (b *Buffer) Set(x, y int, c Cell) {
 
 // eraseWideAt clears all cells of an old multi-cell glyph when any is replaced.
 func (b *Buffer) eraseWideAt(x, y int) {
+	if c := b.cells[y*b.width+x]; !c.Continuation && c.width() < 2 {
+		return // the common case: a narrow glyph, nothing to erase
+	}
 	start := x
 	for start > 0 && b.cells[y*b.width+start].Continuation {
 		start--
 	}
 	lead := b.cells[y*b.width+start]
-	if lead.Grapheme == "" || uniseg.StringWidth(lead.Grapheme) < 2 {
+	width := lead.width()
+	if width < 2 {
 		return
 	}
-	for col := start; col < min(start+uniseg.StringWidth(lead.Grapheme), b.width); col++ {
+	for col := start; col < min(start+width, b.width); col++ {
 		old := b.cells[y*b.width+col]
 		b.cells[y*b.width+col] = Cell{Char: ' ', FG: White, BG: old.BG}
 	}
@@ -182,10 +270,7 @@ func (b *Buffer) SetBlended(x, y int, c Cell) {
 		return
 	}
 	i := y*b.width + x
-	width := 1
-	if c.Grapheme != "" {
-		width = max(uniseg.StringWidth(c.Grapheme), 1)
-	}
+	width := c.width()
 	if !b.inBounds(x+width-1, y) {
 		return
 	}
@@ -199,7 +284,7 @@ func (b *Buffer) SetBlended(x, y int, c Cell) {
 			b.cells[i] = old
 			return
 		}
-		if old.Grapheme != "" && uniseg.StringWidth(old.Grapheme) > 1 {
+		if old.width() > 1 {
 			b.cells[i] = b.blendCells(c, old)
 			return
 		}
@@ -229,14 +314,14 @@ func (b *Buffer) blendCells(over, dest Cell) Cell {
 	// tints it, instead of erasing it. This is how overlays "dim" content.
 	keep := over.Char == ' ' && dest.Char != 0 && dest.Char != ' ' && dest.Char != clearChar
 	if keep {
-		return Cell{Char: dest.Char, Grapheme: dest.Grapheme, FG: blend(over.BG, dest.FG, b.backdrop), BG: bg, Attr: dest.Attr, Link: dest.Link}
+		return Cell{Char: dest.Char, FG: blend(over.BG, dest.FG, b.backdrop), BG: bg, Attr: dest.Attr, ext: dest.ext}
 	}
 
 	fg := over.FG
 	if fgAlpha {
 		fg = blend(over.FG, bg, b.backdrop)
 	}
-	return Cell{Char: over.Char, Grapheme: over.Grapheme, FG: fg, BG: bg, Attr: over.Attr, Link: over.Link}
+	return Cell{Char: over.Char, FG: fg, BG: bg, Attr: over.Attr, ext: over.ext}
 }
 
 // DrawText writes grapheme clusters starting at (x, y), clipped to the
@@ -250,6 +335,7 @@ func (b *Buffer) DrawText(text string, x, y int, fg, bg RGBA, attr Attr) {
 // escape sequence early.
 func (b *Buffer) DrawTextLink(text, url string, x, y int, fg, bg RGBA, attr Attr) {
 	url = sanitizeLink(url)
+	link := makeExt("", url) // one handle for the whole run of text
 	clip := b.Clip()
 	if y < clip.Y || y >= clip.Y+clip.H {
 		return
@@ -261,7 +347,7 @@ func (b *Buffer) DrawTextLink(text, url string, x, y int, fg, bg RGBA, attr Attr
 				if r < 0x20 || r == 0x7f {
 					r = ' '
 				}
-				b.SetBlended(x, y, Cell{Char: r, FG: fg, BG: bg, Attr: attr, Link: url})
+				b.SetBlended(x, y, Cell{Char: r, FG: fg, BG: bg, Attr: attr, ext: link})
 			}
 			x++
 		}
@@ -285,9 +371,11 @@ func (b *Buffer) DrawTextLink(text, url string, x, y int, fg, bg RGBA, attr Attr
 			x += width // never paint a partial grapheme
 			continue
 		}
-		cell := Cell{Char: r, FG: fg, BG: bg, Attr: attr, Link: url}
-		if width > 1 || len(glyph) != len(string(r)) {
-			cell.Grapheme = glyph
+		cell := Cell{Char: r, FG: fg, BG: bg, Attr: attr, ext: link}
+		if len(glyph) != utf8.RuneLen(r) {
+			// Only multi-rune clusters need a handle; a single rune, even a
+			// wide one, is fully described by Char.
+			cell.ext = makeExt(glyph, url)
 		}
 		b.SetBlended(x, y, cell)
 		x += width

@@ -1,10 +1,6 @@
 package opentui
 
-import (
-	"unicode/utf8"
-
-	"github.com/tolaniverse/opentui-go/ansi"
-)
+import "github.com/tolaniverse/opentui-go/ansi"
 
 // FrameOptions controls how a frame is encoded.
 type FrameOptions struct {
@@ -112,15 +108,17 @@ func encodeFrame(w ansi.Writer, current, next *Buffer, opts FrameOptions) FrameS
 				emitAttr(w, attr)
 			}
 
-			if links && cell.Link != link {
-				closeLink()
-				if cell.Link != "" {
-					ansi.LinkStart(w, opts.colors.linkID(cell.Link), cell.Link)
-					link = cell.Link
+			if links {
+				if url := cell.Link(); url != link {
+					closeLink()
+					if url != "" {
+						ansi.LinkStart(w, opts.colors.linkID(url), url)
+						link = url
+					}
 				}
 			}
-			if cell.Grapheme != "" {
-				w.WriteString(cell.Grapheme)
+			if g := cell.cluster(); g != "" {
+				w.WriteString(g)
 			} else {
 				writeRune(w, cell.Char)
 			}
@@ -163,8 +161,7 @@ func writeRune(w ansi.Writer, r rune) {
 	if r == clearChar || r < 0x20 || r == 0x7f {
 		r = ' '
 	}
-	var tmp [utf8.UTFMax]byte
-	w.Write(utf8.AppendRune(tmp[:0], r))
+	w.WriteRune(r) // no scratch slice: it would escape through the interface
 }
 
 var attrCodes = [...]struct {

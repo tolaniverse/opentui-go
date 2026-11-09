@@ -154,3 +154,27 @@ func BenchmarkCtrlWLongLine(b *testing.B) {
 		n.keyHandler(key("w", "\x17", "ctrl"))
 	}
 }
+
+// BenchmarkUnicodeScreen paints and diffs a full 80x24 screen of CJK text
+// with emoji ZWJ sequences, the case where cells carry grapheme data.
+func BenchmarkUnicodeScreen(b *testing.B) {
+	line := strings.Repeat("日本語のテキスト👩🏽‍💻", 4)
+	rows := make([]*Node, 24)
+	for i := range rows {
+		rows[i] = Text(line, TextOptions{})
+	}
+	root := NewNode(Style{}, rows...)
+	current, next := NewBuffer(80, 24), NewBuffer(80, 24)
+	var out bytes.Buffer
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		next.Clear(Transparent)
+		Draw(root, next)
+		out.Reset()
+		if i%2 == 0 {
+			current.fill(clearChar, Transparent) // force a full repaint every other frame
+		}
+		encodeFrame(&out, current, next, FrameOptions{})
+	}
+}

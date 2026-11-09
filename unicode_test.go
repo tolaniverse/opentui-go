@@ -93,7 +93,7 @@ func TestWideGlyphSurvivesTranslucentOverlay(t *testing.T) {
 	b.FillRect(0, 0, 2, 1, RGBAOf(0, 0, 0, 128))
 	lead, _ := b.Get(0, 0)
 	tail, _ := b.Get(1, 0)
-	if lead.Grapheme != "界" || !tail.Continuation {
+	if lead.Grapheme() != "界" || !tail.Continuation {
 		t.Fatalf("translucent overlay split wide glyph: lead=%+v tail=%+v", lead, tail)
 	}
 }
