@@ -141,7 +141,19 @@ func (s *session) waitFor(what string, cond func() bool) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	s.t.Fatalf("timed out waiting for %s; screen:\n%s", what, strings.Join(s.screen.Lines(), "\n"))
+	s.rawMu.Lock()
+	raw := s.raw.String()
+	s.rawMu.Unlock()
+	if len(raw) > 4096 {
+		raw = raw[:4096] + "... (truncated)"
+	}
+	exit := "running"
+	select {
+	case <-s.exited:
+		exit = fmt.Sprint(s.waitErr)
+	default:
+	}
+	s.t.Fatalf("timed out waiting for %s (child: %s); screen:\n%s\nraw output: %q", what, exit, strings.Join(s.screen.Lines(), "\n"), raw)
 }
 
 func (s *session) waitText(text string) (x, y int) {
