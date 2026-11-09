@@ -1,4 +1,4 @@
-# Upstream compatibility (v0.17.0)
+# Upstream compatibility (v0.18.0)
 
 This is a **partial, idiomatic Go port**, not a drop-in replacement for
 OpenTUI's TypeScript or Zig APIs. The comparison is pinned to upstream commit
@@ -17,5 +17,5 @@ There is no cgo, Zig runtime, or JavaScript runtime dependency.
 The examples in `examples/` show the Go API by feature, rather than translating
 TypeScript examples literally. The `tools/ptycheck` module exercises them in
 a pseudo-terminal on Linux and macOS CI, and runs three ConPTY smoke tests on
-Windows CI. `go test ./...` covers the library; neither set of tests asserts
-complete upstream compatibility.
+Windows CI, plus a cross-platform persistent tasks-app workflow. `go test ./...`
+covers the library; neither set of tests asserts complete upstream compatibility.

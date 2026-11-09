@@ -4,7 +4,7 @@ A pure-Go port of [OpenTUI](https://github.com/anomalyco/opentui), a library for
 
 Upstream OpenTUI pairs a Zig engine with a TypeScript API. This port reimplements both layers in Go, with no cgo and no Zig.
 
-> **Status: v0.17.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line and multiline text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering with soft wrapping, diff rendering, resize handling, and clean shutdown.
+> **Status: v0.18.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line and multiline text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering with soft wrapping, diff rendering, resize handling, and clean shutdown.
 > macOS, Linux, and Windows. BSD builds; it is not in CI.
 
 Ported from upstream commit [`e4ad586`](https://github.com/anomalyco/opentui/tree/e4ad5867eae1051a2c1877b08d88bbcaf12b7209).
@@ -27,8 +27,11 @@ Each example focuses on one part of the library:
 | `go run ./examples/color` | Detected color mode (truecolor, 256, 16, or none) |
 | `go run ./examples/styled` | Rich text: bold, italic, underlined and colored spans, an OSC 8 hyperlink |
 | `go run ./examples/select` | A `Select` list with descriptions, keyboard/mouse/wheel navigation, and a filter field |
+| `go run ./examples/tasks` | A usable local task list: add, edit, complete, filter, and persist across runs |
 
 Press Ctrl+C to quit; the terminal is restored.
+
+The tasks app stores JSON at `os.UserConfigDir()/opentui-go/tasks.json`; pass `-data /path/to/tasks.json` to use a different file. In the list, use Up/Down to move, Enter to toggle completion, `a` to add, `e` to edit, and `/` to filter. Enter saves an edited title; Escape cancels. Tab cycles focus. It writes a temporary file in the same directory and renames it after syncing; a failed save leaves the in-memory list unchanged. It is a dogfooding app, not a new library API.
 
 ## Use it
 
@@ -77,7 +80,7 @@ go test -race ./...                         # library unit tests
 scripts/release-check.sh [ref]              # everything, on a clean checkout of ref
 ```
 
-`tools/ptycheck` is a separate module, so the library keeps no test-only dependencies. On Linux and macOS it runs every example in a pseudo-terminal, drives it with real key, paste, and mouse sequences, and checks an emulated screen, including clean exit and terminal-mode cleanup. On Windows the same harness uses a pseudoconsole (ConPTY) for three smoke tests (hello, input, textarea wrap and resize). ConPTY re-encodes output, so those tests check visible text, not exact escape sequences. Run `scripts/release-check.sh` before tagging; it checks only what is committed, and cross-compiles for Windows.
+`tools/ptycheck` is a separate module, so the library keeps no test-only dependencies. On Linux and macOS it runs every example in a pseudo-terminal, drives it with real key, paste, and mouse sequences, and checks an emulated screen, including clean exit and terminal-mode cleanup. On Windows the same harness uses a pseudoconsole (ConPTY) for three smoke tests (hello, input, textarea wrap and resize) and the shared tasks-app workflow. ConPTY re-encodes output, so those tests check visible text, not exact escape sequences. Run `scripts/release-check.sh` before tagging; it checks only what is committed, and cross-compiles for Windows.
 
 `go test -run '^$' -bench . -benchmem .` runs the benchmarks: frame encoding (unchanged, one-cell, full), layout and paint of plain and wrapped documents, a full Unicode screen, and editor keystrokes. Frame encoding does not allocate (a test enforces it). On an Apple M1 (Go 1.26.2, 80×24), v0.16.0 encodes an unchanged frame in ~7.5 µs and a full repaint in ~24 µs, down from ~15 µs and ~34 µs in v0.15.0, by storing a cell's grapheme cluster and link in one interned handle; drawing is statistically unchanged (benchstat, n=10). These are local Go measurements, not comparisons with upstream Zig; rerun on your machine for relevant numbers.
 
@@ -102,12 +105,13 @@ scripts/release-check.sh [ref]              # everything, on a clean checkout of
 | **v0.15.0** | `Textarea` wraps by word by default, as upstream (`WrapDefault`) |
 | **v0.16.0** | Performance: 2× faster frame diff, allocation-free frame encoding (breaking: `Cell.Grapheme`/`Cell.Link` are methods) |
 | **v0.17.0** | Windows console support (virtual-terminal mode, polled resize) and ConPTY smoke tests in CI |
+| **v0.18.0** | Dogfooding: persistent local tasks app, end-to-end add/edit/filter/complete/restart workflow on Unix and Windows |
 
 ## Layout
 
 `Style` supports row/column directions (including reverse), grow and shrink, basis, fixed and percentage dimensions, min/max constraints, gap, padding, margins, justify/align, and absolute positioning. Layout is a pure-Go port of the supported Yoga 3.2.1 algorithm and is checked against 410 generated real-Yoga cases. It also carries OpenTUI's flex-shrink residue fix.
 
-## Known limitations (v0.17.0)
+## Known limitations (v0.18.0)
 
 - `Input` is still single-line and its public cursor offsets are rune indices; editing itself uses grapheme boundaries. Terminal width calculations use `uniseg` defaults and may differ from a particular terminal's emoji width settings.
 - Color mode is detected from `TERM`, `COLORTERM`, `WT_SESSION`, and `NO_COLOR`. It does not query the terminal. Unknown terminals still get truecolor, as upstream does. `Options.Color` can force a mode.
