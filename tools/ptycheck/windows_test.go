@@ -31,7 +31,9 @@ func TestWindowsInput(t *testing.T) {
 	s := winStart(t, "input", 90, 24)
 	s.waitText("Name — Enter moves to email")
 	s.send("Ada")
-	s.waitText("│ Ada")
+	// ConPTY may show a cursor cell between characters in the focused
+	// editor (e.g. "A da"). The submitted-value assertion below checks
+	// that the program actually received the whole name.
 	s.send("\t")
 	s.waitText("Email — Enter submits")
 	s.send("\x1b[Z") // Shift+Tab
