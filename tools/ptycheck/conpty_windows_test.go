@@ -44,10 +44,8 @@ func startTerminal(bin string, env []string, w, h int) (terminal, error) {
 		windows.CloseHandle(outWrite)
 		return nil, fmt.Errorf("CreatePseudoConsole: %w", err)
 	}
-	// The pseudo console holds its own copies of these ends.
-	windows.CloseHandle(inRead)
-	windows.CloseHandle(outWrite)
-
+	// Keep inRead and outWrite open until CreateProcess returns. ConPTY
+	// duplicates them, but closing them first can drop the session.
 	closeRest := func() {
 		if console != 0 {
 			windows.ClosePseudoConsole(console)
@@ -60,6 +58,14 @@ func startTerminal(bin string, env []string, w, h int) (terminal, error) {
 		if outRead != 0 {
 			windows.CloseHandle(outRead)
 			outRead = 0
+		}
+		if inRead != 0 {
+			windows.CloseHandle(inRead)
+			inRead = 0
+		}
+		if outWrite != 0 {
+			windows.CloseHandle(outWrite)
+			outWrite = 0
 		}
 	}
 
@@ -78,6 +84,12 @@ func startTerminal(bin string, env []string, w, h int) (terminal, error) {
 	}
 	si := windows.StartupInfoEx{ProcThreadAttributeList: attrs.List()}
 	si.Cb = uint32(unsafe.Sizeof(si))
+	// Null std handles, explicitly. Otherwise a parent with redirected
+	// pipes (CI) is inherited and the child is not a console, even though
+	// the pseudoconsole attribute is set. node-pty does the same.
+	// https://learn.microsoft.com/en-us/windows/console/creating-a-pseudoconsole-session
+	si.Flags = windows.STARTF_USESTDHANDLES
+	si.StdInput, si.StdOutput, si.StdErr = 0, 0, 0
 
 	cmdline, err := windows.UTF16PtrFromString(syscall.EscapeArg(bin))
 	if err != nil {
@@ -93,6 +105,10 @@ func startTerminal(bin string, env []string, w, h int) (terminal, error) {
 		closeRest()
 		return nil, fmt.Errorf("CreateProcess: %w", err)
 	}
+	// The pseudo console holds its own copies of these ends.
+	windows.CloseHandle(inRead)
+	windows.CloseHandle(outWrite)
+	inRead, outWrite = 0, 0
 	return &conPTY{
 		console: console, process: pi.Process, thread: pi.Thread,
 		in: os.NewFile(uintptr(inWrite), "conpty-in"), out: os.NewFile(uintptr(outRead), "conpty-out"),
