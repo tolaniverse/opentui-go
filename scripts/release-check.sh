@@ -23,6 +23,12 @@ if [ -n "$unformatted" ]; then
   echo "gofmt needed:"; echo "$unformatted"; exit 1
 fi
 go vet ./...
+if command -v staticcheck >/dev/null; then
+  for goos in linux darwin windows freebsd; do GOOS=$goos staticcheck ./...; done
+  (cd tools/ptycheck && staticcheck ./...)
+else
+  echo "warning: staticcheck not installed; CI runs it"
+fi
 go test -count=1 -race ./...
 go build ./...
 (cd tools/ptycheck && go vet ./... && go test -count=1 -race ./...)

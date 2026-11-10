@@ -122,8 +122,6 @@ func startsWord(prev, text string) bool {
 
 type textPos struct{ line, col int }
 
-func (a textPos) less(b textPos) bool { return a.line < b.line || (a.line == b.line && a.col < b.col) }
-
 // after returns the position just past text inserted at a.
 func (a textPos) after(text string) textPos {
 	if i := strings.LastIndexByte(text, '\n'); i >= 0 {

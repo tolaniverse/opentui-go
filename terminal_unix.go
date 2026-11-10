@@ -15,6 +15,8 @@ import (
 
 // platformState is empty on Unix: raw mode (x/term) is all the terminal
 // needs, and escape sequences are always interpreted.
+//
+//lint:ignore U1000 the Renderer field is used on Windows
 type platformState struct{}
 
 func (r *Renderer) enableTerminalOutput() error  { return nil }

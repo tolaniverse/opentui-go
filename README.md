@@ -4,8 +4,8 @@ A pure-Go port of [OpenTUI](https://github.com/anomalyco/opentui), a library for
 
 Upstream OpenTUI pairs a Zig engine with a TypeScript API. This port reimplements both layers in Go, with no cgo and no Zig.
 
-> **Status: v0.19.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line and multiline text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering with soft wrapping, diff rendering, resize handling, and clean shutdown.
-> macOS, Linux, and Windows. BSD builds; it is not in CI.
+> **Status: v0.20.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line and multiline text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering with soft wrapping, diff rendering, resize handling, and clean shutdown.
+> macOS, Linux, and Windows. BSD builds; it is not in CI. Requires Go 1.25 or later; CI tests the oldest supported Go and the latest release.
 
 Ported from upstream commit [`e4ad586`](https://github.com/anomalyco/opentui/tree/e4ad5867eae1051a2c1877b08d88bbcaf12b7209).
 See [compatibility and missing features](COMPATIBILITY.md) before treating it as an upstream replacement.
@@ -109,12 +109,13 @@ scripts/release-check.sh [ref]              # everything, on a clean checkout of
 | **v0.17.0** | Windows console support (virtual-terminal mode, polled resize) and ConPTY smoke tests in CI |
 | **v0.18.0** | Dogfooding: persistent local tasks app, end-to-end add/edit/filter/complete/restart workflow on Unix and Windows |
 | **v0.19.0** | `TabSelect` horizontal tab bar with ellipsis truncation, overflow arrows, mouse and wheel |
+| **v0.20.0** | Go 1.25 minimum (was 1.26.2); CI on oldest and latest Go; staticcheck and govulncheck in CI |
 
 ## Layout
 
 `Style` supports row/column directions (including reverse), grow and shrink, basis, fixed and percentage dimensions, min/max constraints, gap, padding, margins, justify/align, and absolute positioning. Layout is a pure-Go port of the supported Yoga 3.2.1 algorithm and is checked against 410 generated real-Yoga cases. It also carries OpenTUI's flex-shrink residue fix.
 
-## Known limitations (v0.19.0)
+## Known limitations (v0.20.0)
 
 - `Input` is still single-line and its public cursor offsets are rune indices; editing itself uses grapheme boundaries. Terminal width calculations use `uniseg` defaults and may differ from a particular terminal's emoji width settings.
 - Color mode is detected from `TERM`, `COLORTERM`, `WT_SESSION`, and `NO_COLOR`. It does not query the terminal. Unknown terminals still get truecolor, as upstream does. `Options.Color` can force a mode.

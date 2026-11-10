@@ -251,9 +251,6 @@ func (n *Node) submitTextarea() bool {
 	return true
 }
 
-// cellColumn is the terminal-cell column of a rune offset in a line.
-func cellColumn(line []rune, col int) int { return displayWidth(string(line[:col])) }
-
 // colAtCell returns the last grapheme boundary in line whose cell column
 // is at most cell.
 func colAtCell(line []rune, cell int) int {

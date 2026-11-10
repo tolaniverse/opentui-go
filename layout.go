@@ -55,10 +55,6 @@ func All(n int) Edges { return Edges{n, n, n, n} }
 // XY returns x on the left/right and y on the top/bottom.
 func XY(x, y int) Edges { return Edges{Top: y, Right: x, Bottom: y, Left: x} }
 
-func (e Edges) add(o Edges) Edges {
-	return Edges{e.Top + o.Top, e.Right + o.Right, e.Bottom + o.Bottom, e.Left + o.Left}
-}
-
 // ---- Enums (zero value = upstream default) ----------------------------------
 
 // FlexDirection is the main axis children are laid out along.

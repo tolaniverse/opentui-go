@@ -12,21 +12,23 @@ permissions:
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
+        # The oldest supported Go (the go.mod directive) and the latest.
+        go: ["1.25.x", "stable"]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         include:
-          - os: ubuntu-latest
-            race: -race
-          - os: macos-latest
-            race: -race
+          - race: -race
           # windows-latest has no C compiler, and -race needs one.
           - os: windows-latest
             race: ""
+    name: test (${{ matrix.os }}, go ${{ matrix.go }})
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version: ${{ matrix.go }}
       - name: Library
         run: |
           go vet ./...
@@ -37,3 +39,26 @@ jobs:
         run: |
           go vet ./...
           go test -count=1 ${{ matrix.race }} ./...
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l . | grep -v '^tools/yoga-oracle/' || true)"
+          if [ -n "$unformatted" ]; then echo "gofmt needed:"; echo "$unformatted"; exit 1; fi
+      - name: staticcheck (every supported OS)
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@2026.2.2
+          for goos in linux darwin windows freebsd; do
+            echo "== $goos"; GOOS=$goos staticcheck ./...
+          done
+          (cd tools/ptycheck && staticcheck ./...)
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...

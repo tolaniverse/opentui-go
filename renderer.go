@@ -64,6 +64,7 @@ type Renderer struct {
 	in, out  *os.File
 	w        *bufio.Writer
 	oldState *term.State
+	//lint:ignore U1000 used by terminal_windows.go; empty on Unix
 	platform platformState // per-OS terminal state, restored by Close
 
 	current *Buffer // what the terminal shows right now
