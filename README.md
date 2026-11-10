@@ -9,6 +9,11 @@ Upstream OpenTUI pairs a Zig engine with a TypeScript API. This port reimplement
 
 Ported from upstream commit [`e4ad586`](https://github.com/anomalyco/opentui/tree/e4ad5867eae1051a2c1877b08d88bbcaf12b7209).
 See [compatibility and missing features](COMPATIBILITY.md) before treating it as an upstream replacement.
+See [the changelog and API stability policy](CHANGELOG.md) and [security reporting](SECURITY.md).
+
+The current `*Node` API still exposes widget-specific methods on other node
+types, where they may silently do nothing. Typed widget handles are planned
+before v1.0; do not rely on the v0.x API remaining source-compatible.
 
 ## Try it
 
@@ -79,6 +84,7 @@ err = r.Run(context.Background(), nil)
 
 ```bash
 go test -race ./...                         # library unit tests
+(go test -run Example -v .)                # executable package documentation
 (cd tools/ptycheck && go test -race ./...)  # run examples in a real pty
 scripts/release-check.sh [ref]              # everything, on a clean checkout of ref
 ```
