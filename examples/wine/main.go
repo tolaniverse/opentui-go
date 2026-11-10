@@ -2,8 +2,8 @@
 // glowing rims, wine poured into them from above, sloshing as they fill,
 // and red light cast onto the table. Then the glasses rise and clink, a
 // few drops slip over the rims, and they leave a little puddle on the
-// table. It is ray marched on the CPU in plain
-// Go, then drawn with half blocks: each cell shows "▀" with the upper pixel
+// table. It is ray marched on the CPU in plain Go, then drawn with half
+// blocks: each cell shows "▀" with the upper pixel
 // as the foreground color and the lower pixel as the background, so a
 // terminal of W×H cells is a W×2H pixel canvas.
 //
@@ -259,7 +259,7 @@ func newScene(t, camera float64) *scene {
 		}
 	}
 	if dt := t - clinkTime; dt > 0 {
-		s.flash = math.Exp(-dt * 6)
+		s.flash = math.Exp(-dt * 9)
 		s.flashPos = v(0, s.glass[1].cy, 0)
 	}
 	return s
@@ -324,8 +324,12 @@ func (s *scene) wineDist(p vec) float64 {
 		stream := v(p.x-sx, p.y-y, p.z).length() - streamR
 		d = smin(d, stream, 0.05)
 	}
-	for _, f := range s.falling {
-		d = math.Min(d, segment(p, f.head, f.tail)-f.r)
+	// Drops occupy a tiny region; avoid seven segment tests on every
+	// ray-march step elsewhere in the room.
+	if p.y >= 0 && p.y < 3 && math.Abs(p.x) < 2 && math.Abs(p.z) < 2 {
+		for _, f := range s.falling {
+			d = math.Min(d, segment(p, f.head, f.tail)-f.r)
+		}
 	}
 	return d
 }
@@ -371,7 +375,7 @@ func (s *scene) trace(ro, rd vec) vec {
 			core := math.Exp(-(x*x + y*y) * 220)
 			halo := math.Exp(-(x*x + y*y) * 9)
 			star := math.Exp(-x*14-y*y*2500) + math.Exp(-y*14-x*x*2500)
-			col = col.add(v(1, 0.93, 0.88).mul(s.flash * (2.5*core + 0.35*halo + 1.4*star)))
+			col = col.add(v(1, 0.93, 0.88).mul(s.flash * (0.8*core + 0.10*halo + 0.35*star)))
 		}
 	}
 	return col
@@ -387,19 +391,25 @@ func (s *scene) march(ro, rd vec) vec {
 		p := ro.add(rd.mul(t))
 		d, what := s.dist(p)
 		if gd := s.glassDist(p); gd > 0 {
-			glow += trans * math.Exp(-gd*70) * math.Min(math.Max(d, 0.004), 0.05)
+			glow += trans * math.Exp(-gd*95) * math.Min(math.Max(d, 0.004), 0.035)
 		}
 		if d < 0.0015 {
 			switch what {
 			case hitGlass:
 				n := normal(s.glassDist, p)
-				fres := math.Pow(1-math.Abs(n.dot(rd)), 4)
-				spec := math.Pow(math.Max(reflect(rd, n).dot(light), 0), 80)
-				col = col.add(v(0.95, 0.93, 0.97).mul(trans * (fres*environment(reflect(rd, n)) + 1.2*spec)))
-				trans *= 0.96 - 0.5*fres
+				fres := math.Pow(1-math.Abs(n.dot(rd)), 5)
+				spec := math.Pow(math.Max(reflect(rd, n).dot(light), 0), 120)
+				// The bowl catches narrow side lights; the stem and foot are
+				// nearly black except for tiny specular highlights.
+				material := 1.0
+				if s.nearest(p).local(p).y < bowlY-bowlR+0.1 {
+					material = 0.35
+				}
+				col = col.add(v(0.95, 0.91, 0.86).mul(trans * material * (fres*environment(reflect(rd, n)) + 0.6*spec)))
+				trans *= 0.97 - 0.42*fres
 				glassHits++
 				if glassHits > 6 {
-					return col.add(v(1, 0.95, 0.95).mul(glow * 1.3))
+					return col.add(v(1, 0.85, 0.78).mul(glow * 0.65))
 				}
 				t += 0.03 // through the shell
 				continue
@@ -408,46 +418,61 @@ func (s *scene) march(ro, rd vec) vec {
 			case hitFloor:
 				col = col.add(s.shadeFloor(p, rd).mul(trans))
 			}
-			return col.add(v(1, 0.95, 0.95).mul(glow * 1.3))
+			return col.add(v(1, 0.85, 0.78).mul(glow * 0.65))
 		}
 		t += math.Max(d*0.85, 0.002)
 	}
-	return col.add(background(rd).mul(trans)).add(v(1, 0.95, 0.95).mul(glow * 1.3))
+	return col.add(background(rd).mul(trans)).add(v(1, 0.85, 0.78).mul(glow * 0.65))
 }
 
 func (s *scene) shadeWine(p, rd vec) vec {
 	n := normal(s.wineDist, p)
 	base := wine
-	if n.y > 0.75 && p.y > bowlY-bowlR+0.1 {
-		base = v(0.62, 0.035, 0.055) // the lit surface
+	if n.y > 0.75 && p.y > s.nearest(p).cy-bowlR+0.1 {
+		// The center of the wine's top is dark; only its far edge and
+		// narrow reflections should catch light.
+		reflected := math.Pow(math.Max(reflect(rd, n).dot(light), 0), 70)
+		return v(0.045, 0.001, 0.003).add(v(0.6, 0.1, 0.08).mul(reflected * 0.3))
 	}
-	diff := 0.3 + 0.7*math.Max(n.dot(light), 0)
+	diff := 0.22 + 0.78*math.Max(n.dot(light), 0)
 	fres := math.Pow(1-math.Abs(n.dot(rd)), 3)
-	spec := math.Pow(math.Max(reflect(rd, n).dot(light), 0), 40)
-	return base.mul(diff).add(v(0.9, 0.25, 0.25).mul(0.35 * fres)).add(v(1, 0.8, 0.8).mul(0.7 * spec))
+	spec := math.Pow(math.Max(reflect(rd, n).dot(light), 0), 70)
+	return base.mul(diff).add(v(0.9, 0.035, 0.045).mul(0.85 * fres)).add(v(1, 0.65, 0.6).mul(0.5 * spec))
 }
 
 func (s *scene) shadeFloor(p, rd vec) vec {
-	c := v(0.03, 0.022, 0.022).mul(math.Exp(-0.06 * (p.x*p.x + p.z*p.z)))
+	c := v(0.035, 0.030, 0.028).mul(math.Exp(-0.04 * (p.x*p.x + p.z*p.z)))
 	for i := range s.glass {
 		g := &s.glass[i]
 		dx, dz := p.x-g.cx, p.z
 		// Contact shadow under the foot: softer and fainter as it lifts.
 		soft := 1 + 4*g.lift
 		c = c.mul(1 - 0.75/soft*math.Exp(-(dx*dx+dz*dz)*9/soft))
+		if g.lift < 0.15 {
+			// The near-black foot is a flattened disk, not a white line.
+			weight := 1 - g.lift/0.15
+			radial := math.Hypot(dx, dz) / footR
+			disc := 1 - smoothstep(0.82, 1.05, radial)
+			c = c.mul(1 - 0.9*disc*weight)
+			c = c.add(v(0.15, 0.13, 0.12).mul(0.22 * weight * math.Exp(-dx*dx*80-(dz+0.08)*(dz+0.08)*100)))
+		}
 		// Light through the wine lands to the right of the glass, further
 		// away the higher the glass is.
 		fill := smoothstep(-bowlR, 0.06, g.level)
 		lx, lz := dx-0.8-0.73*g.lift, dz-0.25-0.45*g.lift
 		c = c.add(v(0.42, 0.02, 0.03).mul(fill / (1 + 1.5*g.lift) * math.Exp(-(lx*lx*2.2+lz*lz*9)/(1+2*g.lift))))
+		// A faint, broken reflection on the tabletop below each foot.
+		// Its visible lobe sits in front of the glass from this camera.
+		rx, rz := dx, dz+0.85
+		reflection := math.Exp(-rx*rx*7 - rz*rz*12)
+		c = c.add(v(0.025, 0.019, 0.018).mul(reflection / (1 + 2*g.lift)))
 	}
 	// A dim, blurry reflection of the rims.
 	spec := math.Pow(math.Max(reflect(rd, v(0, 1, 0)).dot(light), 0), 8)
 	c = c.add(v(0.03, 0.022, 0.022).mul(spec))
 	c = s.puddle(p, rd, c)
-	// Fade the table into the background with distance, so there is no
-	// hard horizon.
-	fog := smoothstep(4, 12, math.Hypot(p.x, p.z+2))
+	// A subdued but visible horizon separates the dark room from the table.
+	fog := smoothstep(4, 5.5, math.Hypot(p.x, p.z+2))
 	return c.mul(1 - fog).add(background(rd).mul(fog))
 }
 
@@ -463,7 +488,7 @@ func (s *scene) puddle(p, rd, floor vec) vec {
 			continue
 		}
 		at := d.at(d.t0 + d.land)
-		radius := (0.09 + 3.2*d.r) * (0.35 + 0.65*smoothstep(0, 0.35, since))
+		radius := (0.055 + 1.9*d.r) * (0.35 + 0.65*smoothstep(0, 0.35, since))
 		dx, dz := p.x-at.x, p.z-at.z
 		field += math.Exp(-(dx*dx + dz*dz) / (radius * radius))
 	}
@@ -476,7 +501,7 @@ func (s *scene) puddle(p, rd, floor vec) vec {
 	r := reflect(rd, v(0, 1, 0))
 	spec := math.Pow(math.Max(r.dot(light), 0), 30)
 	gloss := 0.15*environment(r) + 0.8*spec
-	pool := v(0.10, 0.004, 0.008).add(v(0.9, 0.5, 0.5).mul(gloss * 0.25))
+	pool := v(0.055, 0.002, 0.004).add(v(0.9, 0.5, 0.5).mul(gloss * 0.15))
 	c := floor.mul(1 - inside).add(pool.mul(inside))
 	return c.add(v(0.35, 0.05, 0.06).mul(edge * 0.4))
 }
@@ -485,13 +510,13 @@ func (s *scene) puddle(p, rd, floor vec) vec {
 // two tall soft lights stand off to the sides, so glass edges that face
 // sideways catch them and the rest stays dark.
 func environment(r vec) float64 {
-	return 0.06 + 7*smoothstep(0.3, 0.9, math.Abs(r.x))*smoothstep(-0.3, 0.2, r.y)
+	return 0.04 + 11*smoothstep(0.45, 0.92, math.Abs(r.x))*smoothstep(-0.3, 0.2, r.y)
 }
 
 func background(rd vec) vec {
 	h := 0.5 + 0.5*rd.y
 	spot := math.Exp(-rd.x * rd.x * 2.5)
-	return v(0.028, 0.011, 0.011).mul(0.25 + 1.1*h*spot)
+	return v(0.013, 0.005, 0.005).mul(0.3 + 1.0*h*spot)
 }
 
 // ---- Pixels ----------------------------------------------------------------
