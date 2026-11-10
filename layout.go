@@ -174,7 +174,8 @@ func defined(f float32) bool { return f == f }
 
 // ComputeLayout sizes root to width×height at (0, 0) and positions every
 // visible node under it. Results are read with Node.Rect.
-func ComputeLayout(root *Node, width, height int) {
+func ComputeLayout(handle NodeHandle, width, height int) {
+	root := handle.AsNode()
 	w, h := float32(width), float32(height)
 	root.lay.pos = [4]float32{}
 	root.calculate(w, h, stretchFit, stretchFit, w, h, true)

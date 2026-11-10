@@ -20,7 +20,7 @@ func key(name, sequence string, mods ...string) *KeyEvent {
 	return k
 }
 
-func cursorAt(t *testing.T, n *Node, line, col int) {
+func cursorAt(t *testing.T, n *TextareaNode, line, col int) {
 	t.Helper()
 	if l, c := n.CursorPosition(); l != line || c != col {
 		t.Fatalf("cursor = (%d,%d), want (%d,%d); value %q", l, c, line, col, n.Value())

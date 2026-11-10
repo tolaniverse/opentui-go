@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func tabsAt(o TabSelectOptions, w int) (*Renderer, *Node, *Buffer) {
+func tabsAt(o TabSelectOptions, w int) (*Renderer, *TabSelectNode, *Buffer) {
 	o.Style.Width = Cells(w)
 	n := TabSelect(o)
 	r := testRenderer(NewNode(Style{AlignItems: AlignStart}, n))

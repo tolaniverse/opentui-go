@@ -81,9 +81,9 @@ func (t *textState) visual(width int) []visualRow {
 // Text returns a leaf node that shows content. Lines split on "\n".
 // Its natural size is the longest line × the number of lines.
 //
-// It is a simplified stand-in for upstream TextRenderable: plain text only,
-// no styled spans. Set TextOptions.Wrap to soft-wrap to the node's width.
-func Text(content string, o TextOptions) *Node {
+// Use Styled or SetSpans for rich text. Set TextOptions.Wrap to soft-wrap
+// to the node's width.
+func Text(content string, o TextOptions) *TextNode {
 	o.Wrap = o.Wrap.or(WrapNone)
 	n := NewNode(o.Style)
 	n.ID, n.ZIndex = o.ID, o.ZIndex
@@ -98,7 +98,7 @@ func Text(content string, o TextOptions) *Node {
 	}
 	n.text = &textState{opts: o}
 	n.Selectable = !o.NoSelect
-	n.SetText(content)
+	n.setText(content)
 	// measure is Yoga's "measure function": how a leaf tells layout how
 	// big its content is, within the limits it is given.
 	n.measure = func(w float64, wm MeasureMode, h float64, hm MeasureMode) (float64, float64) {
@@ -119,7 +119,7 @@ func Text(content string, o TextOptions) *Node {
 		return fit(float64(cw), w, wm), fit(float64(len(rows)), h, hm)
 	}
 	n.paint = paintText
-	return n
+	return &TextNode{n}
 }
 
 // fit applies a measure constraint to a content size.
@@ -133,8 +133,8 @@ func fit(content, limit float64, m MeasureMode) float64 {
 	return content
 }
 
-// SetText replaces the content of a Text node. On other nodes it does nothing.
-func (n *Node) SetText(content string) {
+// setText replaces the content of a Text node.
+func (n *Node) setText(content string) {
 	if n.text != nil {
 		n.text.lines = strings.Split(content, "\n")
 		n.text.runs = nil
@@ -142,8 +142,8 @@ func (n *Node) SetText(content string) {
 	}
 }
 
-// TextContent returns the content of a Text node ("" for other nodes).
-func (n *Node) TextContent() string {
+// textContent returns the content of a Text node.
+func (n *Node) textContent() string {
 	if n.text == nil {
 		return ""
 	}
@@ -279,15 +279,15 @@ func (s Span) Bg(c RGBA) Span      { s.BG = c; return s }
 func (s Span) WithLink(url string) Span { s.Link = url; return s }
 
 // Styled returns a Text node showing spans; spans may contain newlines.
-func Styled(o TextOptions, spans ...Span) *Node {
+func Styled(o TextOptions, spans ...Span) *TextNode {
 	n := Text("", o)
-	n.SetSpans(spans...)
+	n.setSpans(spans...)
 	return n
 }
 
-// SetSpans replaces a Text node's content with styled spans. Text with a
+// setSpans replaces a Text node's content with styled spans. Text with a
 // single style can keep using SetText, which clears the spans.
-func (n *Node) SetSpans(spans ...Span) {
+func (n *Node) setSpans(spans ...Span) {
 	t := n.text
 	if t == nil {
 		return
@@ -335,10 +335,10 @@ func snapRuns(line []rune, runs []styleRun) []styleRun {
 	return out
 }
 
-// Spans returns a Text node's content as spans: the spans from SetSpans
+// spans returns a Text node's content as spans: the spans from SetSpans
 // (merged per line and split at newlines), or one plain span after
 // SetText.
-func (n *Node) Spans() []Span {
+func (n *Node) spans() []Span {
 	t := n.text
 	if t == nil {
 		return nil

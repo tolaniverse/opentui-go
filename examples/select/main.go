@@ -58,7 +58,7 @@ func main() {
 		},
 	})
 
-	box := func(title string, child *tui.Node, grow float64) *tui.Node {
+	box := func(title string, child tui.NodeHandle, grow float64) *tui.Node {
 		style := tui.Style{FlexGrow: grow, Padding: tui.XY(1, 0)}
 		if grow > 0 {
 			// Grow into leftover space instead of starting from the list's

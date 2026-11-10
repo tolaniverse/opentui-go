@@ -277,7 +277,7 @@ func (r *Renderer) autoScrollDelta() (box *Node, dx, dy int) {
 // autoScrollTick scrolls once and reports whether anything moved.
 func (r *Renderer) autoScrollTick() bool {
 	box, dx, dy := r.autoScrollDelta()
-	return box != nil && (dx != 0 || dy != 0) && box.ScrollBy(dx, dy)
+	return box != nil && (dx != 0 || dy != 0) && box.scrollBy(dx, dy)
 }
 
 // scheduleAutoScroll keeps scrolling on a timer while a selection drag is

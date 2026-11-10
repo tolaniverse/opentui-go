@@ -67,9 +67,9 @@ type textareaState struct {
 	opts      TextareaOptions
 }
 
-// Textarea returns a focusable, measured, multiline editor. Lines do not
-// soft-wrap; the view scrolls horizontally and vertically to the cursor.
-func Textarea(o TextareaOptions) *Node {
+// Textarea returns a focusable, measured, multiline editor. Lines soft-wrap
+// by default; the view scrolls to follow the cursor.
+func Textarea(o TextareaOptions) *TextareaNode {
 	o.Wrap = o.Wrap.or(WrapWord)
 	if o.FG == (RGBA{}) {
 		o.FG = White
@@ -93,7 +93,7 @@ func Textarea(o TextareaOptions) *Node {
 	n.ID, n.ZIndex, n.Focusable = o.ID, o.ZIndex, true
 	n.textarea = &textareaState{lines: [][]rune{nil}, goal: -1, follow: true, opts: o}
 	n.setTextareaValue(o.Value, false)
-	n.textarea.committed = n.Value()
+	n.textarea.committed = n.value()
 
 	n.measure = func(w float64, wm MeasureMode, h float64, hm MeasureMode) (float64, float64) {
 		s := n.textarea
@@ -117,13 +117,13 @@ func Textarea(o TextareaOptions) *Node {
 	n.keyHandler = n.handleTextareaKey
 	n.controlMouseHandler = n.handleTextareaMouse
 	n.pasteHandler = func(event *PasteEvent) {
-		if n.InsertText(event.Text) {
+		if n.insertText(event.Text) {
 			event.PreventDefault()
 		}
 	}
-	n.onFocus = func() { n.textarea.committed = n.Value() }
+	n.onFocus = func() { n.textarea.committed = n.value() }
 	n.onBlur = func() { n.commitTextarea() }
-	return n
+	return &TextareaNode{n}
 }
 
 // sanitizeTextarea normalizes line endings to "\n", expands tabs, and drops
@@ -175,19 +175,18 @@ func (n *Node) setTextareaValue(value string, notify bool) {
 	}
 }
 
-// CursorPosition returns a Textarea's cursor as a line index and a rune
-// offset within that line, always at a grapheme boundary. Other node types
-// return 0, 0.
-func (n *Node) CursorPosition() (line, col int) {
+// cursorPosition returns a Textarea's cursor as a line index and a rune
+// offset within that line, always at a grapheme boundary.
+func (n *Node) cursorPosition() (line, col int) {
 	if n.textarea == nil {
 		return 0, 0
 	}
 	return n.textarea.line, n.textarea.col
 }
 
-// SetCursorPosition moves a Textarea cursor. The line is clamped, and the
+// setCursorPosition moves a Textarea cursor. The line is clamped, and the
 // rune offset is clamped and snapped to the preceding grapheme boundary.
-func (n *Node) SetCursorPosition(line, col int) {
+func (n *Node) setCursorPosition(line, col int) {
 	if n.textarea == nil {
 		return
 	}
@@ -198,9 +197,8 @@ func (n *Node) SetCursorPosition(line, col int) {
 	s.hasAnchor, s.follow = false, true
 }
 
-// LineCount returns the number of lines in a Textarea (at least 1), or 0
-// for other node types.
-func (n *Node) LineCount() int {
+// lineCount returns the number of lines in a Textarea (at least 1).
+func (n *Node) lineCount() int {
 	if n.textarea == nil {
 		return 0
 	}
@@ -229,13 +227,13 @@ func (n *Node) insertTextarea(text string, kind editKind) bool {
 
 func (n *Node) notifyTextarea() {
 	if fn := n.textarea.opts.OnInput; fn != nil {
-		fn(n.Value())
+		fn(n.value())
 	}
 }
 
 func (n *Node) commitTextarea() {
 	s := n.textarea
-	if v := n.Value(); v != s.committed {
+	if v := n.value(); v != s.committed {
 		s.committed = v
 		if s.opts.OnChange != nil {
 			s.opts.OnChange(v)
@@ -246,7 +244,7 @@ func (n *Node) commitTextarea() {
 func (n *Node) submitTextarea() bool {
 	n.commitTextarea()
 	if fn := n.textarea.opts.OnSubmit; fn != nil {
-		fn(n.Value())
+		fn(n.value())
 	}
 	return true
 }

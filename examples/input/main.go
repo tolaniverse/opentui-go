@@ -27,7 +27,7 @@ func main() {
 	}
 
 	status := tui.Text("Ready — type your name", tui.TextOptions{FG: green})
-	var email *tui.Node
+	var email *tui.InputNode
 	name := tui.Input(tui.InputOptions{
 		ID: "name", Placeholder: "Ada Lovelace", MaxLength: 32,
 		Style: tui.Style{Width: tui.Pct(100), Height: tui.Cells(1)},

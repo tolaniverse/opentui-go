@@ -75,9 +75,9 @@ func BenchmarkInputPasteUnicode(b *testing.B) {
 func BenchmarkDrawDocument(b *testing.B) {
 	rows := make([]*Node, 200)
 	for i := range rows {
-		rows[i] = Text(fmt.Sprintf("Line %03d: selectable content for a scrolling terminal document", i), TextOptions{})
+		rows[i] = Text(fmt.Sprintf("Line %03d: selectable content for a scrolling terminal document", i), TextOptions{}).Node
 	}
-	scroll := ScrollBox(ScrollBoxOptions{BoxOptions: BoxOptions{Style: Style{FlexGrow: 1}}}, rows...)
+	scroll := ScrollBox(ScrollBoxOptions{BoxOptions: BoxOptions{Style: Style{FlexGrow: 1}}}, NodeHandles(rows)...)
 	root := NewNode(Style{}, scroll)
 	buf := NewBuffer(80, 24)
 	b.ReportAllocs()
@@ -130,9 +130,9 @@ func BenchmarkDrawWrappedDocument(b *testing.B) {
 	para := strings.Repeat("Selectable content for a scrolling terminal document, wrapped by word. ", 3)
 	rows := make([]*Node, 200)
 	for i := range rows {
-		rows[i] = Text(fmt.Sprintf("%03d %s", i, para), TextOptions{Wrap: WrapWord})
+		rows[i] = Text(fmt.Sprintf("%03d %s", i, para), TextOptions{Wrap: WrapWord}).Node
 	}
-	scroll := ScrollBox(ScrollBoxOptions{BoxOptions: BoxOptions{Style: Style{FlexGrow: 1}}}, rows...)
+	scroll := ScrollBox(ScrollBoxOptions{BoxOptions: BoxOptions{Style: Style{FlexGrow: 1}}}, NodeHandles(rows)...)
 	root := NewNode(Style{}, scroll)
 	buf := NewBuffer(80, 24)
 	b.ReportAllocs()
@@ -161,9 +161,9 @@ func BenchmarkUnicodeScreen(b *testing.B) {
 	line := strings.Repeat("日本語のテキスト👩🏽‍💻", 4)
 	rows := make([]*Node, 24)
 	for i := range rows {
-		rows[i] = Text(line, TextOptions{})
+		rows[i] = Text(line, TextOptions{}).Node
 	}
-	root := NewNode(Style{}, rows...)
+	root := NewNode(Style{}, NodeHandles(rows)...)
 	current, next := NewBuffer(80, 24), NewBuffer(80, 24)
 	var out bytes.Buffer
 	b.ReportAllocs()

@@ -12,7 +12,11 @@ func (r *Renderer) SetMouseHandler(fn func(*MouseEvent)) { r.mouseHandler = fn }
 
 // Focus moves keyboard focus to n. It returns false when n is nil,
 // non-focusable, hidden, or detached from this renderer's tree.
-func (r *Renderer) Focus(n *Node) bool {
+func (r *Renderer) Focus(handle NodeHandle) bool {
+	var n *Node
+	if handle != nil {
+		n = handle.AsNode()
+	}
 	if n == nil || !n.Focusable || !r.focusCandidate(n) {
 		return false
 	}

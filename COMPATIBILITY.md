@@ -1,5 +1,9 @@
 # Upstream compatibility (v0.20.0)
 
+Unreleased `main` is migrating widget constructors to typed handles; see
+[MIGRATION.md](MIGRATION.md). This table otherwise describes the v0.20.0
+feature subset.
+
 This is a **partial, idiomatic Go port**, not a drop-in replacement for
 OpenTUI's TypeScript or Zig APIs. The comparison is pinned to upstream commit
 [`e4ad5867`](https://github.com/anomalyco/opentui/tree/e4ad5867eae1051a2c1877b08d88bbcaf12b7209).

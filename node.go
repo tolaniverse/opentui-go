@@ -50,8 +50,25 @@ type Node struct {
 	rect Rect        // final layout, rounded to whole cells
 }
 
+// NodeHandle is a tree element usable by Box, Add, Focus and other layout
+// APIs. Typed widget handles embed *Node and implement AsNode.
+type NodeHandle interface{ AsNode() *Node }
+
+// AsNode returns the underlying layout and event node.
+func (n *Node) AsNode() *Node { return n }
+
+// NodeHandles converts a homogeneous slice into tree elements for variadic
+// constructors (Go does not convert []T to []NodeHandle implicitly).
+func NodeHandles[T NodeHandle](nodes []T) []NodeHandle {
+	result := make([]NodeHandle, len(nodes))
+	for i, n := range nodes {
+		result[i] = n
+	}
+	return result
+}
+
 // NewNode returns a layout-only container (draws nothing itself).
-func NewNode(style Style, children ...*Node) *Node {
+func NewNode(style Style, children ...NodeHandle) *Node {
 	n := &Node{Style: style}
 	n.Add(children...)
 	return n
@@ -61,12 +78,16 @@ func NewNode(style Style, children ...*Node) *Node {
 // Adding a node to itself or to one of its descendants panics, because
 // the tree would become a loop. So does adding children to a leaf that
 // measures its own content (Text), as in Yoga.
-func (n *Node) Add(children ...*Node) *Node {
+func (n *Node) Add(children ...NodeHandle) *Node {
 	if n.scroll != nil && n.scroll.content != nil {
 		n.scroll.content.Add(children...)
 		return n
 	}
-	for _, c := range children {
+	for _, child := range children {
+		if child == nil {
+			continue
+		}
+		c := child.AsNode()
 		if c != nil && n.measure != nil {
 			panic("opentui: a measured leaf (e.g. Text) cannot have children")
 		}
@@ -88,7 +109,14 @@ func (n *Node) Add(children ...*Node) *Node {
 }
 
 // Remove detaches child from n. It reports whether child was found.
-func (n *Node) Remove(child *Node) bool {
+func (n *Node) Remove(handle NodeHandle) bool {
+	if handle == nil {
+		return false
+	}
+	child := handle.AsNode()
+	if child == nil {
+		return false
+	}
 	if n.scroll != nil && n.scroll.content != nil && child != n.scroll.content {
 		return n.scroll.content.Remove(child)
 	}
@@ -159,7 +187,8 @@ func (n *Node) Find(id string) *Node {
 }
 
 // Draw lays out root to fill b, then paints the tree into b.
-func Draw(root *Node, b *Buffer) {
+func Draw(handle NodeHandle, b *Buffer) {
+	root := handle.AsNode()
 	ComputeLayout(root, b.Width(), b.Height())
 	Paint(root, b)
 }
@@ -167,7 +196,8 @@ func Draw(root *Node, b *Buffer) {
 // Paint draws an already laid-out tree: each node paints itself, then its
 // children in z-order. Children of an Overflow: Hidden node are clipped to
 // the area inside its border (upstream scene.zig does the same).
-func Paint(n *Node, b *Buffer) {
+func Paint(handle NodeHandle, b *Buffer) {
+	n := handle.AsNode()
 	if n.Hidden {
 		return
 	}

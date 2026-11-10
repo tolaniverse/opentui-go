@@ -116,7 +116,7 @@ func TestMouseRoutingBubblesAndClickFocuses(t *testing.T) {
 	if len(order) != 2 || order[0] != "input" || order[1] != "parent" {
 		t.Fatalf("order: %v", order)
 	}
-	if r.Focused() != input {
+	if r.Focused() != input.Node {
 		t.Fatal("left click did not focus input")
 	}
 }

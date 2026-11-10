@@ -6,7 +6,7 @@ import (
 )
 
 func selectableText(content string) *Node {
-	return Text(content, TextOptions{})
+	return Text(content, TextOptions{}).Node
 }
 
 func TestSelectionDragAndClear(t *testing.T) {

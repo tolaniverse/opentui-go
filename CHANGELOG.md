@@ -5,6 +5,10 @@ are available on [GitHub](https://github.com/tolaniverse/opentui-go/releases).
 
 ## Unreleased
 
+- Breaking API: widget constructors return typed handles (`*TextNode`,
+  `*InputNode`, `*TextareaNode`, `*SelectNode`, `*TabSelectNode`,
+  `*ScrollBoxNode`). Widget-only methods moved off `*Node`.
+  Tree/focus APIs accept `NodeHandle`; see [MIGRATION.md](MIGRATION.md).
 - Added a half-block 3D wine example with visual clink and spill; refined its
   materials and lighting. This is an example, not a new graphics API.
 - Added package documentation, runnable examples and a security policy.

@@ -42,7 +42,7 @@ type inputState struct {
 
 // Input returns a focusable, measured, single-line editor. Use Renderer.Focus
 // to focus it initially; Tab and Shift+Tab traverse all focusable nodes.
-func Input(o InputOptions) *Node {
+func Input(o InputOptions) *InputNode {
 	if o.MaxLength == 0 {
 		o.MaxLength = 1000
 	}
@@ -69,28 +69,28 @@ func Input(o InputOptions) *Node {
 	n.ID, n.ZIndex, n.Focusable = o.ID, o.ZIndex, true
 	n.input = &inputState{placeholder: o.Placeholder, minLength: o.MinLength, maxLength: o.MaxLength, opts: o}
 	n.setInputValue(o.Value, false)
-	n.input.committed = n.Value()
+	n.input.committed = n.value()
 	n.input.cursor = len(n.input.value)
 
 	n.measure = func(w float64, wm MeasureMode, h float64, hm MeasureMode) (float64, float64) {
-		content := max(displayWidth(n.Value()), displayWidth(n.input.placeholder))
+		content := max(displayWidth(n.value()), displayWidth(n.input.placeholder))
 		return fit(float64(content), w, wm), fit(1, h, hm)
 	}
 	n.paint = paintInput
 	n.keyHandler = n.handleInputKey
 	n.pasteHandler = func(event *PasteEvent) {
-		if n.InsertText(event.Text) {
+		if n.insertText(event.Text) {
 			event.PreventDefault()
 		}
 	}
-	n.onFocus = func() { n.input.committed = n.Value() }
+	n.onFocus = func() { n.input.committed = n.value() }
 	n.onBlur = func() { n.commitInput() }
-	return n
+	return &InputNode{n}
 }
 
-// Value returns an Input or Textarea node's text (Textarea lines are joined
-// with "\n"), or "" for other node types.
-func (n *Node) Value() string {
+// value returns an Input or Textarea node's text (Textarea lines are joined
+// with "\n").
+func (n *Node) value() string {
 	if n.textarea != nil {
 		return n.textarea.value()
 	}
@@ -104,7 +104,7 @@ func (n *Node) Value() string {
 // in whole grapheme clusters,
 // moves the cursor to the end, and invokes OnInput when the value changes.
 // On a Textarea it keeps newlines, normalizes line endings, and expands tabs.
-func (n *Node) SetValue(value string) {
+func (n *Node) setValue(value string) {
 	if n.textarea != nil {
 		n.setTextareaValue(value, true)
 		return
@@ -131,7 +131,7 @@ func (n *Node) setInputValue(value string, notify bool) {
 
 // Cursor returns an Input node's cursor offset in runes, always at a grapheme
 // boundary. Rune offsets are retained for API compatibility with v0.3–0.6.
-func (n *Node) Cursor() int {
+func (n *Node) cursor() int {
 	if n.input == nil {
 		return 0
 	}
@@ -139,7 +139,7 @@ func (n *Node) Cursor() int {
 }
 
 // SetCursor moves an Input cursor, clamped to [0, len(value)].
-func (n *Node) SetCursor(offset int) {
+func (n *Node) setCursor(offset int) {
 	if n.input != nil {
 		n.input.cursor = inputFloor(n.input.value, offset)
 	}
@@ -147,7 +147,7 @@ func (n *Node) SetCursor(offset int) {
 
 // InsertText inserts sanitized text at the cursor. It reports whether the
 // value changed.
-func (n *Node) InsertText(text string) bool {
+func (n *Node) insertText(text string) bool {
 	if n.textarea != nil {
 		return n.insertTextarea(text, editOther)
 	}
@@ -199,7 +199,7 @@ func (n *Node) insertInput(text string, kind editKind) bool {
 }
 
 // Submit invokes OnChange if needed and then OnSubmit when MinLength is met.
-func (n *Node) Submit() bool {
+func (n *Node) submit() bool {
 	if n.textarea != nil {
 		return n.submitTextarea()
 	}
@@ -208,14 +208,14 @@ func (n *Node) Submit() bool {
 	}
 	n.commitInput()
 	if n.input.opts.OnSubmit != nil {
-		n.input.opts.OnSubmit(n.Value())
+		n.input.opts.OnSubmit(n.value())
 	}
 	return true
 }
 
 func (n *Node) notifyInput() {
 	if n.input.opts.OnInput != nil {
-		n.input.opts.OnInput(n.Value())
+		n.input.opts.OnInput(n.value())
 	}
 }
 
@@ -223,7 +223,7 @@ func (n *Node) commitInput() {
 	if n.input == nil {
 		return
 	}
-	value := n.Value()
+	value := n.value()
 	if value != n.input.committed {
 		n.input.committed = value
 		if n.input.opts.OnChange != nil {
@@ -258,9 +258,9 @@ func (n *Node) handleInputKey(key *KeyEvent) {
 	}
 	switch {
 	case isUndoKey(key):
-		n.Undo()
+		n.undo()
 	case isRedoKey(key):
-		n.Redo()
+		n.redo()
 	case isWordLeftKey(key):
 		move(prevWordBoundary(s.value, s.cursor))
 	case isWordRightKey(key):
@@ -298,7 +298,7 @@ func (n *Node) handleInputKey(key *KeyEvent) {
 		}
 		cut(s.cursor, inputNext(s.value, s.cursor), editDelete)
 	case key.Name == "return" || key.Name == "kpenter" || key.Name == "linefeed":
-		handled = n.Submit()
+		handled = n.submit()
 	case !key.Ctrl && !key.Alt && !key.Meta && !key.Super && printableSequence(key.Sequence):
 		handled = n.insertInput(key.Sequence, editType)
 	default:

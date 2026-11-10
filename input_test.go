@@ -2,7 +2,7 @@ package opentui
 
 import "testing"
 
-func testRenderer(root *Node) *Renderer { return &Renderer{root: root} }
+func testRenderer(root NodeHandle) *Renderer { return &Renderer{root: root.AsNode()} }
 
 func press(name, sequence string) *KeyEvent {
 	return &KeyEvent{Name: name, Sequence: sequence, Raw: sequence, Type: KeyPress}
@@ -17,16 +17,16 @@ func TestFocusTraversalAndValidation(t *testing.T) {
 	root := NewNode(Style{}, a, hidden, b)
 	r := testRenderer(root)
 
-	if got := r.FocusNext(false); got != a || !a.Focused() {
+	if got := r.FocusNext(false); got != a.Node || !a.Focused() {
 		t.Fatalf("first focus = %v", got)
 	}
-	if got := r.FocusNext(false); got != b || a.Focused() || !b.Focused() {
+	if got := r.FocusNext(false); got != b.Node || a.Focused() || !b.Focused() {
 		t.Fatalf("second focus = %v", got)
 	}
-	if got := r.FocusNext(false); got != a {
+	if got := r.FocusNext(false); got != a.Node {
 		t.Fatalf("wrap focus = %v", got)
 	}
-	if got := r.FocusNext(true); got != b {
+	if got := r.FocusNext(true); got != b.Node {
 		t.Fatalf("reverse wrap = %v", got)
 	}
 	if r.Focus(c) {
@@ -47,14 +47,14 @@ func TestTabDispatchAndGlobalPrevention(t *testing.T) {
 
 	tab := press("tab", "\t")
 	r.dispatchInput(keyInput{tab})
-	if r.Focused() != b || !tab.DefaultPrevented() {
+	if r.Focused() != b.Node || !tab.DefaultPrevented() {
 		t.Fatal("Tab did not advance focus")
 	}
 
 	shiftTab := press("tab", "\x1b[Z")
 	shiftTab.Shift = true
 	r.dispatchInput(keyInput{shiftTab})
-	if r.Focused() != a {
+	if r.Focused() != a.Node {
 		t.Fatal("Shift+Tab did not reverse focus")
 	}
 
@@ -64,7 +64,7 @@ func TestTabDispatchAndGlobalPrevention(t *testing.T) {
 		}
 	})
 	r.dispatchInput(keyInput{press("tab", "\t")})
-	if r.Focused() != a {
+	if r.Focused() != a.Node {
 		t.Fatal("prevented Tab changed focus")
 	}
 }
@@ -105,7 +105,7 @@ func TestFocusChangeDoesNotReuseInFlightKey(t *testing.T) {
 	a.SetKeyHandler(func(*KeyEvent) { r.Focus(b) })
 	r.Focus(a)
 	r.dispatchInput(keyInput{press("x", "x")})
-	if a.Value() != "x" || b.Value() != "" || r.Focused() != b {
+	if a.Value() != "x" || b.Value() != "" || r.Focused() != b.Node {
 		t.Fatalf("a=%q b=%q focused=%p", a.Value(), b.Value(), r.Focused())
 	}
 }

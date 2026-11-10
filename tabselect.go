@@ -57,7 +57,7 @@ type tabSelectState struct {
 // Beyond upstream: a click selects a tab (clicking the selected tab fires
 // OnSelect), the wheel moves the selection, and an unsized node measures
 // to the width of all its tabs.
-func TabSelect(o TabSelectOptions) *Node {
+func TabSelect(o TabSelectOptions) *TabSelectNode {
 	if o.FocusedBG == (RGBA{}) {
 		if o.BG != (RGBA{}) {
 			o.FocusedBG = o.BG
@@ -98,7 +98,7 @@ func TabSelect(o TabSelectOptions) *Node {
 	n.paint = paintTabSelect
 	n.keyHandler = n.handleTabSelectKey
 	n.controlMouseHandler = n.handleTabSelectMouse
-	return n
+	return &TabSelectNode{n}
 }
 
 // height is upstream calculateDynamicHeight.
@@ -130,7 +130,7 @@ func (s *tabSelectState) center(width int) {
 }
 
 // SetTabWidth changes how many cells each tab of a TabSelect takes.
-func (n *Node) SetTabWidth(width int) {
+func (n *Node) setTabWidth(width int) {
 	if n.tabs != nil && width > 0 {
 		n.tabs.opts.TabWidth = width
 		n.tabs.pinned = false // re-center, as upstream setTabWidth
@@ -138,7 +138,7 @@ func (n *Node) SetTabWidth(width int) {
 }
 
 // TabWidth is the width in cells of each tab of a TabSelect.
-func (n *Node) TabWidth() int {
+func (n *Node) tabWidth() int {
 	if n.tabs == nil {
 		return 0
 	}
@@ -184,7 +184,7 @@ func (n *Node) handleTabSelectKey(key *KeyEvent) {
 	case "right", "]":
 		n.moveTab(1)
 	case "return", "linefeed":
-		n.SelectCurrent()
+		n.selectCurrent()
 	default:
 		return
 	}
@@ -223,9 +223,9 @@ func (n *Node) handleTabSelectMouse(e *MouseEvent) {
 		}
 		if i := n.tabAt(e.X, e.Y); i >= 0 {
 			if i == s.selected {
-				n.SelectCurrent()
+				n.selectCurrent()
 			} else {
-				n.SetSelectedIndex(i)
+				n.setSelectedIndex(i)
 				s.pinned = true
 			}
 			e.StopPropagation()

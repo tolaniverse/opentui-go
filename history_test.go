@@ -5,7 +5,8 @@ import (
 	"testing"
 )
 
-func typeKeys(n *Node, text string) {
+func typeKeys(handle NodeHandle, text string) {
+	n := handle.AsNode()
 	for _, r := range text {
 		n.keyHandler(key(string(r), string(r)))
 	}
@@ -120,17 +121,18 @@ func TestUndoRedoKeyBindings(t *testing.T) {
 	undo := []*KeyEvent{key("z", "\x1a", "ctrl"), key("_", "\x1f", "ctrl"), key("-", "-", "ctrl"), superKey("z", false)}
 	redo := []*KeyEvent{key("y", "\x19", "ctrl"), key(".", ".", "ctrl"), key("z", "z", "ctrl", "shift"), superKey("z", true)}
 	for i := range undo {
-		for _, n := range []*Node{Textarea(TextareaOptions{}), Input(InputOptions{})} {
-			n.InsertText("x")
+		for _, n := range []NodeHandle{Textarea(TextareaOptions{}), Input(InputOptions{})} {
+			node := n.AsNode()
+			node.insertText("x")
 			u := *undo[i]
-			n.keyHandler(&u)
-			if n.Value() != "" || !u.DefaultPrevented() {
-				t.Fatalf("undo key %d (%q): value %q", i, undo[i].Sequence, n.Value())
+			node.keyHandler(&u)
+			if node.value() != "" || !u.DefaultPrevented() {
+				t.Fatalf("undo key %d (%q): value %q", i, undo[i].Sequence, node.value())
 			}
 			r := *redo[i]
-			n.keyHandler(&r)
-			if n.Value() != "x" || !r.DefaultPrevented() {
-				t.Fatalf("redo key %d (%q): value %q", i, redo[i].Sequence, n.Value())
+			node.keyHandler(&r)
+			if node.value() != "x" || !r.DefaultPrevented() {
+				t.Fatalf("redo key %d (%q): value %q", i, redo[i].Sequence, node.value())
 			}
 		}
 	}
@@ -235,22 +237,22 @@ func TestInputUndoAndWordKeys(t *testing.T) {
 // restores the final one.
 func undoRoundTrip(t *testing.T, n *Node, initial string) {
 	t.Helper()
-	final := n.Value()
+	final := n.value()
 	steps := 0
-	for n.Undo() {
+	for n.undo() {
 		if steps++; steps > historyLimit {
 			t.Fatal("undo did not terminate")
 		}
 	}
-	if got := n.Value(); got != initial {
+	if got := n.value(); got != initial {
 		t.Fatalf("undo all: %q, want initial %q (final %q)", got, initial, final)
 	}
 	for i := 0; i < steps; i++ {
-		if !n.Redo() {
+		if !n.redo() {
 			t.Fatalf("redo %d of %d failed", i+1, steps)
 		}
 	}
-	if got := n.Value(); got != final {
+	if got := n.value(); got != final {
 		t.Fatalf("redo all: %q, want final %q", got, final)
 	}
 }
@@ -270,14 +272,14 @@ func FuzzEditorHistory(f *testing.F) {
 	f.Add("", []byte{7, 7, 8, 7, 19, 20, 20, 4, 9, 10, 5, 5, 19})
 	f.Fuzz(func(t *testing.T, value string, ops []byte) {
 		ops = ops[:min(len(ops), 300)]
-		for _, n := range []*Node{Textarea(TextareaOptions{Value: value}), Input(InputOptions{Value: value})} {
-			initial := n.Value()
+		for _, n := range []*Node{Textarea(TextareaOptions{Value: value}).Node, Input(InputOptions{Value: value}).Node} {
+			initial := n.value()
 			for _, op := range ops {
 				k := *historyFuzzKeys[int(op)%len(historyFuzzKeys)]
 				n.keyHandler(&k)
 			}
-			if n.textarea != nil && strings.Count(n.Value(), "\n")+1 != n.LineCount() {
-				t.Fatalf("line count %d for %q", n.LineCount(), n.Value())
+			if n.textarea != nil && strings.Count(n.value(), "\n")+1 != n.lineCount() {
+				t.Fatalf("line count %d for %q", n.lineCount(), n.value())
 			}
 			undoRoundTrip(t, n, initial)
 		}

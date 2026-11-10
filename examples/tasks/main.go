@@ -17,10 +17,10 @@ import (
 type app struct {
 	r      *tui.Renderer
 	store  *store
-	list   *tui.Node
-	filter *tui.Node
-	editor *tui.Node
-	status *tui.Node
+	list   *tui.SelectNode
+	filter *tui.InputNode
+	editor *tui.InputNode
+	status *tui.TextNode
 	editID int // 0 means add a new task
 }
 
@@ -78,7 +78,7 @@ func (a *app) build() {
 		Style: tui.Style{Width: tui.Pct(100)}, FG: tui.White, BG: field, FocusedBG: field,
 		OnSubmit: a.saveEditor,
 	})
-	box := func(title string, child *tui.Node, grow bool) *tui.Node {
+	box := func(title string, child tui.NodeHandle, grow bool) *tui.Node {
 		style := tui.Style{Padding: tui.XY(1, 0)}
 		if grow {
 			style.FlexGrow, style.FlexBasis = 1, tui.Cells(0)
@@ -173,8 +173,8 @@ func (a *app) handleKey(key *tui.KeyEvent) {
 	if key.Type == tui.KeyRelease || key.Ctrl || key.Alt || key.Meta || key.Super {
 		return
 	}
-	if key.Name == "escape" && a.r.Focused() != a.list {
-		if a.r.Focused() == a.editor {
+	if key.Name == "escape" && a.r.Focused() != a.list.Node {
+		if a.r.Focused() == a.editor.Node {
 			a.editor.SetValue("")
 			a.editID = 0
 		}
@@ -182,7 +182,7 @@ func (a *app) handleKey(key *tui.KeyEvent) {
 		key.PreventDefault()
 		return
 	}
-	if a.r.Focused() != a.list {
+	if a.r.Focused() != a.list.Node {
 		return // printable keys belong to the focused Input
 	}
 	switch key.Name {

@@ -73,7 +73,7 @@ type BoxOptions struct {
 // Box returns a node that paints a background, a border and titles, and
 // lays out its children inside. Each border side takes one cell of layout
 // space, as upstream sets a Yoga border of 1 per drawn side.
-func Box(o BoxOptions, children ...*Node) *Node {
+func Box(o BoxOptions, children ...NodeHandle) *Node {
 	n := NewNode(o.Style, children...)
 	n.ID, n.ZIndex = o.ID, o.ZIndex
 	n.border = Edges{

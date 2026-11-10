@@ -80,7 +80,7 @@ func main() {
 		Title: " opentui-go · mouse ", TitleColor: accent,
 		Style: tui.Style{Height: tui.Cells(3), Padding: tui.XY(1, 0)},
 	}, tui.Text("Hover · click · drag and drop", tui.TextOptions{FG: tui.White}))
-	row := tui.NewNode(tui.Style{Direction: tui.Row, FlexGrow: 1, Gap: 1}, zones...)
+	row := tui.NewNode(tui.Style{Direction: tui.Row, FlexGrow: 1, Gap: 1}, tui.NodeHandles(zones)...)
 	footer := tui.Text("Ctrl+C quit", tui.TextOptions{FG: muted, Attr: tui.AttrDim})
 
 	r.Root().Style = tui.Style{Gap: 1}

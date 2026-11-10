@@ -27,7 +27,7 @@ func main() {
 	}
 
 	status := tui.Text("Drag text to select and copy · wheel, arrows or scrollbar scroll", tui.TextOptions{FG: green})
-	lines := make([]*tui.Node, 24)
+	lines := make([]*tui.TextNode, 24)
 	for i := range lines {
 		lines[i] = tui.Text(fmt.Sprintf("Line %02d  Select and scroll this document.", i+1), tui.TextOptions{FG: tui.White})
 	}
@@ -39,7 +39,7 @@ func main() {
 		},
 		// y counts the content's top padding row, so line N is at the top when y == N.
 		OnScroll: func(_, y int) { status.SetText(fmt.Sprintf("Scrolled to line %d", max(y, 1))) },
-	}, lines...)
+	}, tui.NodeHandles(lines)...)
 
 	header := tui.Box(tui.BoxOptions{
 		Border: tui.BorderAll, BorderStyle: tui.BorderRounded, BorderColor: accent,

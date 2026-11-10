@@ -14,7 +14,7 @@ func fruitOptions() []SelectOption {
 	}
 }
 
-func selectAt(o SelectOptions, w, h int) (*Renderer, *Node, *Buffer) {
+func selectAt(o SelectOptions, w, h int) (*Renderer, *SelectNode, *Buffer) {
 	o.Style.Width, o.Style.Height = Cells(w), Cells(h)
 	n := Select(o)
 	r := testRenderer(NewNode(Style{AlignItems: AlignStart}, n))

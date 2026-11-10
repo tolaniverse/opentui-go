@@ -26,3 +26,11 @@ func ExampleBox() {
 	fmt.Printf("%c\n", cell.Char)
 	// Output: H
 }
+
+func ExampleInput() {
+	input := tui.Input(tui.InputOptions{ID: "name"})
+	root := tui.NewNode(tui.Style{}, input)
+	input.SetValue("Ada")
+	fmt.Println(tui.AsInput(root.Find("name")).Value())
+	// Output: Ada
+}

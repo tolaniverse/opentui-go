@@ -348,7 +348,7 @@ func (n *Node) inputRestore(from, to *[]inputSnapshot) bool {
 // cursor and selection from before it, and reports whether anything was
 // undone. Typing merges into one step per word; runs of Backspace or
 // Delete merge too. SetValue clears the history, as upstream's setText.
-func (n *Node) Undo() bool {
+func (n *Node) undo() bool {
 	switch {
 	case n.textarea != nil:
 		if n.textarea.undo() {
@@ -362,7 +362,7 @@ func (n *Node) Undo() bool {
 }
 
 // Redo reapplies the last undone edit group; any new edit clears it.
-func (n *Node) Redo() bool {
+func (n *Node) redo() bool {
 	switch {
 	case n.textarea != nil:
 		if n.textarea.redoEdit() {

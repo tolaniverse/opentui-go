@@ -85,7 +85,7 @@ func (s *scrollState) barAt(x, y int) int {
 
 // ScrollBox returns a box with clipped scrollable content. Vertical scrolling
 // is enabled when neither axis is specified.
-func ScrollBox(o ScrollBoxOptions, children ...*Node) *Node {
+func ScrollBox(o ScrollBoxOptions, children ...NodeHandle) *ScrollBoxNode {
 	if !o.ScrollX && !o.ScrollY {
 		o.ScrollY = true
 	}
@@ -121,11 +121,11 @@ func ScrollBox(o ScrollBoxOptions, children ...*Node) *Node {
 	n.controlMouseHandler = n.handleScrollMouse
 	n.keyHandler = n.handleScrollKey
 	n.paintAfter = paintScrollbars
-	return n
+	return &ScrollBoxNode{n}
 }
 
 // ScrollBy moves a ScrollBox by delta cells and reports whether it moved.
-func (n *Node) ScrollBy(dx, dy int) bool {
+func (n *Node) scrollBy(dx, dy int) bool {
 	if n.scroll == nil {
 		return false
 	}
@@ -133,7 +133,7 @@ func (n *Node) ScrollBy(dx, dy int) bool {
 }
 
 // ScrollTo moves a ScrollBox to an absolute cell offset.
-func (n *Node) ScrollTo(x, y int) bool {
+func (n *Node) scrollTo(x, y int) bool {
 	if n.scroll == nil {
 		return false
 	}
@@ -141,7 +141,7 @@ func (n *Node) ScrollTo(x, y int) bool {
 }
 
 // ScrollOffset returns a ScrollBox's current x and y offsets.
-func (n *Node) ScrollOffset() (x, y int) {
+func (n *Node) scrollOffset() (x, y int) {
 	if n.scroll == nil {
 		return 0, 0
 	}
@@ -149,7 +149,7 @@ func (n *Node) ScrollOffset() (x, y int) {
 }
 
 // ScrollSize returns a ScrollBox's laid-out content dimensions.
-func (n *Node) ScrollSize() (width, height int) {
+func (n *Node) scrollSize() (width, height int) {
 	if n.scroll == nil {
 		return 0, 0
 	}
@@ -157,7 +157,7 @@ func (n *Node) ScrollSize() (width, height int) {
 }
 
 // ViewportRect returns the visible content rectangle of a ScrollBox.
-func (n *Node) ViewportRect() Rect {
+func (n *Node) viewportRect() Rect {
 	if n.scroll == nil {
 		return Rect{}
 	}
@@ -211,13 +211,13 @@ func (n *Node) handleScrollMouse(event *MouseEvent) {
 	moved := false
 	switch event.Scroll.Direction {
 	case ScrollUp:
-		moved = n.ScrollBy(0, -delta)
+		moved = n.scrollBy(0, -delta)
 	case ScrollDown:
-		moved = n.ScrollBy(0, delta)
+		moved = n.scrollBy(0, delta)
 	case ScrollLeft:
-		moved = n.ScrollBy(-delta, 0)
+		moved = n.scrollBy(-delta, 0)
 	case ScrollRight:
-		moved = n.ScrollBy(delta, 0)
+		moved = n.scrollBy(delta, 0)
 	}
 	if moved {
 		event.PreventDefault()
@@ -244,9 +244,9 @@ func (n *Node) pressScrollbar(x, y int) bool {
 			page = -page
 		}
 		if axis == barY {
-			n.ScrollBy(0, page)
+			n.scrollBy(0, page)
 		} else {
-			n.ScrollBy(page, 0)
+			n.scrollBy(page, 0)
 		}
 		b, _ = s.bar(axis)
 	}
@@ -273,9 +273,9 @@ func (n *Node) dragScrollbar(x, y int) {
 	thumb := min(max(pos-s.dragGrab-b.trackStart, 0), travel)
 	offset := (thumb*maxOffset + travel/2) / travel // rounded
 	if s.dragAxis == barY {
-		n.ScrollTo(s.x, offset)
+		n.scrollTo(s.x, offset)
 	} else {
-		n.ScrollTo(offset, s.y)
+		n.scrollTo(offset, s.y)
 	}
 }
 
@@ -287,21 +287,21 @@ func (n *Node) handleScrollKey(key *KeyEvent) {
 	moved := false
 	switch key.Name {
 	case "up":
-		moved = n.ScrollBy(0, -1)
+		moved = n.scrollBy(0, -1)
 	case "down":
-		moved = n.ScrollBy(0, 1)
+		moved = n.scrollBy(0, 1)
 	case "left":
-		moved = n.ScrollBy(-1, 0)
+		moved = n.scrollBy(-1, 0)
 	case "right":
-		moved = n.ScrollBy(1, 0)
+		moved = n.scrollBy(1, 0)
 	case "pageup":
-		moved = n.ScrollBy(0, -max(s.viewport.H-1, 1))
+		moved = n.scrollBy(0, -max(s.viewport.H-1, 1))
 	case "pagedown":
-		moved = n.ScrollBy(0, max(s.viewport.H-1, 1))
+		moved = n.scrollBy(0, max(s.viewport.H-1, 1))
 	case "home":
-		moved = n.ScrollTo(0, 0)
+		moved = n.scrollTo(0, 0)
 	case "end":
-		moved = n.ScrollTo(s.maxX, s.maxY)
+		moved = n.scrollTo(s.maxX, s.maxY)
 	}
 	if moved {
 		key.PreventDefault()

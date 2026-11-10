@@ -7,7 +7,7 @@ import (
 
 // editorAt puts a Textarea of w×h at the top-left of an otherwise empty
 // screen and paints one frame, so hit-testing and rows are ready.
-func editorAt(o TextareaOptions, w, h int) (*Renderer, *Node) {
+func editorAt(o TextareaOptions, w, h int) (*Renderer, *TextareaNode) {
 	o.Style.Width, o.Style.Height = Cells(w), Cells(h)
 	n := Textarea(o)
 	r := testRenderer(NewNode(Style{AlignItems: AlignStart}, n))
@@ -15,7 +15,8 @@ func editorAt(o TextareaOptions, w, h int) (*Renderer, *Node) {
 	return r, n
 }
 
-func frame(r *Renderer, n *Node) *Buffer {
+func frame(r *Renderer, handle NodeHandle) *Buffer {
+	n := handle.AsNode()
 	rect := n.Rect()
 	b := NewBuffer(rect.W+4, rect.H+2)
 	r.drawFrame(b)

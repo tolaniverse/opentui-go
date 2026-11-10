@@ -66,10 +66,10 @@ func (s *textareaState) deleteSelection() bool {
 	return s.replaceRange(textPos{r.sl, r.sc}, textPos{r.el, r.ec}, "", editOther)
 }
 
-// SelectedText returns a Textarea's selected text ("\n" between lines), or
-// "" when nothing is selected or n is not a Textarea. For the renderer's
+// selectedText returns a Textarea's selected text ("\n" between lines), or
+// "" when nothing is selected. For the renderer's
 // selection of Text nodes, use Renderer.SelectedText.
-func (n *Node) SelectedText() string {
+func (n *Node) selectedText() string {
 	if n.textarea == nil {
 		return ""
 	}
@@ -77,7 +77,7 @@ func (n *Node) SelectedText() string {
 }
 
 // SelectAll selects a Textarea's whole value, with the cursor at the end.
-func (n *Node) SelectAll() {
+func (n *Node) selectAll() {
 	if n.textarea == nil {
 		return
 	}
@@ -125,14 +125,14 @@ func (n *Node) handleTextareaKey(key *KeyEvent) {
 	switch {
 	case isUndoKey(key) || isRedoKey(key):
 		if isUndoKey(key) {
-			n.Undo()
+			n.undo()
 		} else {
-			n.Redo()
+			n.redo()
 		}
 		key.PreventDefault() // also when there is nothing to undo
 		return
 	case key.Super && key.Name == "a":
-		n.SelectAll()
+		n.selectAll()
 		key.PreventDefault()
 		return
 	case isMovementKey(key) && key.Shift:

@@ -10,11 +10,11 @@ import (
 
 // barBox is an 8x4 ScrollBox over 12 text rows. Its vertical bar is column
 // 7, rows 0-3; the thumb is one cell (4*4/12) and starts at row 0.
-func barBox(hideBars bool) (*Renderer, *Node) {
+func barBox(hideBars bool) (*Renderer, *ScrollBoxNode) {
 	scroll := ScrollBox(ScrollBoxOptions{
 		BoxOptions:     BoxOptions{Style: Style{Width: Cells(8), Height: Cells(4)}},
 		HideScrollbars: hideBars,
-	}, scrollLines(12)...)
+	}, NodeHandles(scrollLines(12))...)
 	r := testRenderer(NewNode(Style{}, scroll))
 	r.drawFrame(NewBuffer(8, 6))
 	return r, scroll
@@ -26,10 +26,10 @@ func mouse(r *Renderer, typ MouseEventType, x, y int) {
 
 func TestScrollbarWinsHitTestOverContent(t *testing.T) {
 	r, scroll := barBox(false)
-	if hit := r.hitTest(7, 0); hit != scroll {
+	if hit := r.hitTest(7, 0); hit != scroll.Node {
 		t.Fatalf("bar cell hit %p, want scroll box %p", hit, scroll)
 	}
-	if hit := r.hitTest(1, 0); hit == scroll || hit.text == nil {
+	if hit := r.hitTest(1, 0); hit == scroll.Node || hit.text == nil {
 		t.Fatal("content cell should hit the text row")
 	}
 	_, hidden := barBox(true)
@@ -86,8 +86,8 @@ func TestSelectionClampsToViewportAndAutoScrolls(t *testing.T) {
 	if got := r.SelectedText(); got != "row1\nrow2\nrow3" {
 		t.Fatalf("clamped selection = %q", got)
 	}
-	if box, _, dy := r.autoScrollDelta(); box != scroll || dy != 2 {
-		t.Fatalf("auto-scroll delta = %d (box %v)", dy, box == scroll)
+	if box, _, dy := r.autoScrollDelta(); box != scroll.Node || dy != 2 {
+		t.Fatalf("auto-scroll delta = %d (box %v)", dy, box == scroll.Node)
 	}
 	if !r.autoScrollTick() {
 		t.Fatal("tick did not scroll")

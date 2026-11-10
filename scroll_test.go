@@ -8,7 +8,7 @@ import (
 func scrollLines(count int) []*Node {
 	lines := make([]*Node, count)
 	for i := range lines {
-		lines[i] = Text(fmt.Sprintf("row%d", i), TextOptions{})
+		lines[i] = Text(fmt.Sprintf("row%d", i), TextOptions{}).Node
 	}
 	return lines
 }
@@ -17,7 +17,7 @@ func TestScrollBoxLayoutClampAndPaint(t *testing.T) {
 	scroll := ScrollBox(ScrollBoxOptions{
 		BoxOptions:     BoxOptions{Style: Style{Width: Cells(8), Height: Cells(3)}},
 		HideScrollbars: true,
-	}, scrollLines(8)...)
+	}, NodeHandles(scrollLines(8))...)
 	root := NewNode(Style{}, scroll)
 	b := draw(root, 8, 3)
 	if width, height := scroll.ScrollSize(); width != 8 || height != 8 {
@@ -42,7 +42,7 @@ func TestScrollBoxWheelAndKeyboard(t *testing.T) {
 	scroll := ScrollBox(ScrollBoxOptions{
 		BoxOptions:     BoxOptions{Style: Style{Width: Cells(8), Height: Cells(3)}},
 		HideScrollbars: true, WheelStep: 2,
-	}, scrollLines(8)...)
+	}, NodeHandles(scrollLines(8))...)
 	root := NewNode(Style{}, scroll)
 	Draw(root, NewBuffer(8, 3))
 	r := testRenderer(root)
@@ -65,7 +65,7 @@ func TestScrollBoxStickyEndFollowsGrowth(t *testing.T) {
 	scroll := ScrollBox(ScrollBoxOptions{
 		BoxOptions: BoxOptions{Style: Style{Width: Cells(8), Height: Cells(2)}},
 		StickyEnd:  true, HideScrollbars: true,
-	}, scrollLines(3)...)
+	}, NodeHandles(scrollLines(3))...)
 	root := NewNode(Style{}, scroll)
 	Draw(root, NewBuffer(8, 2))
 	if _, y := scroll.ScrollOffset(); y != 1 {
@@ -91,7 +91,7 @@ func TestScrollBoxOnScrollAndChildrenFacade(t *testing.T) {
 		BoxOptions:     BoxOptions{Style: Style{Width: Cells(5), Height: Cells(2)}},
 		HideScrollbars: true,
 		OnScroll:       func(x, y int) { positions = append(positions, [2]int{x, y}) },
-	}, children...)
+	}, NodeHandles(children)...)
 	root := NewNode(Style{}, scroll)
 	Draw(root, NewBuffer(5, 2))
 	if got := scroll.Children(); len(got) != 4 || got[0] != children[0] {
@@ -111,7 +111,7 @@ func TestScrollBoxHitTestingClipsOffscreenChildren(t *testing.T) {
 	scroll := ScrollBox(ScrollBoxOptions{
 		BoxOptions:     BoxOptions{Style: Style{Width: Cells(8), Height: Cells(2)}},
 		HideScrollbars: true,
-	}, lines...)
+	}, NodeHandles(lines)...)
 	root := NewNode(Style{}, scroll)
 	Draw(root, NewBuffer(8, 2))
 	scroll.ScrollTo(0, 3)
@@ -125,7 +125,7 @@ func TestScrollBoxHitTestingClipsOffscreenChildren(t *testing.T) {
 func TestScrollBoxPaintsScrollbar(t *testing.T) {
 	scroll := ScrollBox(ScrollBoxOptions{
 		BoxOptions: BoxOptions{Style: Style{Width: Cells(6), Height: Cells(3)}},
-	}, scrollLines(6)...)
+	}, NodeHandles(scrollLines(6))...)
 	b := draw(NewNode(Style{}, scroll), 6, 3)
 	cell, ok := b.Get(5, 0)
 	if !ok || cell.BG != RGB(137, 180, 250) {
@@ -145,7 +145,7 @@ func TestScrollBoxPaddingScrollsWithContent(t *testing.T) {
 			Style:  Style{Width: Cells(10), Height: Cells(6), Padding: All(1)},
 		},
 		HideScrollbars: true,
-	}, lines...)
+	}, NodeHandles(lines)...)
 	root := NewNode(Style{}, scroll)
 	Draw(root, NewBuffer(10, 6))
 	if vp := scroll.ViewportRect(); vp != (Rect{X: 1, Y: 1, W: 8, H: 4}) {

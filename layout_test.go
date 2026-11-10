@@ -7,7 +7,8 @@ import (
 
 func rect(x, y, w, h int) Rect { return Rect{x, y, w, h} }
 
-func expectRect(t *testing.T, name string, n *Node, want Rect) {
+func expectRect(t *testing.T, name string, handle NodeHandle, want Rect) {
+	n := handle.AsNode()
 	t.Helper()
 	if got := n.Rect(); got != want {
 		t.Errorf("%s: got %+v, want %+v", name, got, want)
@@ -109,7 +110,7 @@ func TestJustify(t *testing.T) {
 		for range 3 {
 			kids = append(kids, NewNode(Style{Width: Cells(2)}))
 		}
-		root := NewNode(Style{Direction: Row, Justify: tc.j}, kids...)
+		root := NewNode(Style{Direction: Row, Justify: tc.j}, NodeHandles(kids)...)
 		ComputeLayout(root, 12, 1)
 		for i, k := range kids {
 			if k.Rect().X != tc.want[i] {

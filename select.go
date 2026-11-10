@@ -60,7 +60,7 @@ type selectState struct {
 // Beyond upstream: a click selects an item (clicking the selected item
 // fires OnSelect), the wheel moves the selection, SetFilter narrows the
 // list, and the node measures to its content when no size is given.
-func Select(o SelectOptions) *Node {
+func Select(o SelectOptions) *SelectNode {
 	defaults := []struct {
 		c   *RGBA
 		hex string
@@ -81,7 +81,7 @@ func Select(o SelectOptions) *Node {
 	n.ID, n.ZIndex, n.Focusable = o.ID, o.ZIndex, true
 	s := &selectState{opts: o}
 	n.list = s
-	n.SetSelectOptions(o.Options)
+	n.setSelectOptions(o.Options)
 	s.selected = min(max(o.SelectedIndex, 0), max(len(o.Options)-1, 0))
 	n.measure = func(w float64, wm MeasureMode, h float64, hm MeasureMode) (float64, float64) {
 		width := 0
@@ -95,7 +95,7 @@ func Select(o SelectOptions) *Node {
 	n.paint = paintSelect
 	n.keyHandler = n.handleSelectKey
 	n.controlMouseHandler = n.handleSelectMouse
-	return n
+	return &SelectNode{n}
 }
 
 func (n *Node) selectState() *selectState { return n.list }
@@ -127,7 +127,7 @@ func (s *selectState) position() int {
 
 // SetSelectOptions replaces a Select's or TabSelect's options, keeping the
 // selected index when it still exists, as upstream's options setter.
-func (n *Node) SetSelectOptions(options []SelectOption) {
+func (n *Node) setSelectOptions(options []SelectOption) {
 	if t := n.tabs; t != nil {
 		t.opts.Options = options
 		t.selected = min(t.selected, max(len(options)-1, 0))
@@ -147,7 +147,7 @@ func (n *Node) SetSelectOptions(options []SelectOption) {
 // ignoring case ("" shows all). Indexes still refer to the full option
 // list. If the selection is filtered out, it moves to the first match and
 // OnChange fires.
-func (n *Node) SetFilter(query string) {
+func (n *Node) setFilter(query string) {
 	if n.list != nil {
 		n.list.filter = query
 		n.list.pinned = false
@@ -173,7 +173,7 @@ func (n *Node) applyFilter(notify bool) {
 }
 
 // VisibleOptions is how many options pass the filter.
-func (n *Node) VisibleOptions() int {
+func (n *Node) visibleOptions() int {
 	if n.list == nil {
 		return 0
 	}
@@ -182,7 +182,7 @@ func (n *Node) VisibleOptions() int {
 
 // SelectedIndex is the index into the options of a Select's or
 // TabSelect's selection.
-func (n *Node) SelectedIndex() int {
+func (n *Node) selectedIndex() int {
 	if n.tabs != nil {
 		return n.tabs.selected
 	}
@@ -194,7 +194,7 @@ func (n *Node) SelectedIndex() int {
 
 // SelectedOption returns the selected option; false when the list is
 // empty or the filter hides everything.
-func (n *Node) SelectedOption() (SelectOption, bool) {
+func (n *Node) selectedOption() (SelectOption, bool) {
 	if t := n.tabs; t != nil {
 		if t.selected >= len(t.opts.Options) {
 			return SelectOption{}, false
@@ -210,7 +210,7 @@ func (n *Node) SelectedOption() (SelectOption, bool) {
 
 // SetSelectedIndex selects option index if it exists and is visible, and
 // fires OnChange, even when index is already selected, as upstream.
-func (n *Node) SetSelectedIndex(index int) {
+func (n *Node) setSelectedIndex(index int) {
 	if t := n.tabs; t != nil {
 		if index >= 0 && index < len(t.opts.Options) {
 			t.selected, t.pinned = index, false
@@ -236,7 +236,7 @@ func (n *Node) SetSelectedIndex(index int) {
 // moveUp/moveDown, and fires OnChange. A TabSelect moves one tab per step
 // and, as upstream moveLeft/moveRight, fires OnChange only for steps that
 // move.
-func (n *Node) MoveSelection(steps int) {
+func (n *Node) moveSelection(steps int) {
 	if n.tabs != nil {
 		step := 1
 		if steps < 0 {
@@ -265,8 +265,8 @@ func (n *Node) MoveSelection(steps int) {
 }
 
 // SelectCurrent fires OnSelect for the selected option, if any.
-func (n *Node) SelectCurrent() bool {
-	opt, ok := n.SelectedOption()
+func (n *Node) selectCurrent() bool {
+	opt, ok := n.selectedOption()
 	var onSelect func(int, SelectOption)
 	switch {
 	case !ok:
@@ -276,7 +276,7 @@ func (n *Node) SelectCurrent() bool {
 		onSelect = n.list.opts.OnSelect
 	}
 	if onSelect != nil {
-		onSelect(n.SelectedIndex(), opt)
+		onSelect(n.selectedIndex(), opt)
 	}
 	return ok
 }
@@ -294,15 +294,15 @@ func (n *Node) handleSelectKey(key *KeyEvent) {
 	}
 	switch {
 	case key.Name == "up" && key.Shift:
-		n.MoveSelection(-n.list.opts.FastScrollStep)
+		n.moveSelection(-n.list.opts.FastScrollStep)
 	case key.Name == "down" && key.Shift:
-		n.MoveSelection(n.list.opts.FastScrollStep)
+		n.moveSelection(n.list.opts.FastScrollStep)
 	case key.Name == "up" || key.Name == "k":
-		n.MoveSelection(-1)
+		n.moveSelection(-1)
 	case key.Name == "down" || key.Name == "j":
-		n.MoveSelection(1)
+		n.moveSelection(1)
 	case key.Name == "return" || key.Name == "linefeed":
-		n.SelectCurrent()
+		n.selectCurrent()
 	default:
 		return
 	}
@@ -332,10 +332,10 @@ func (n *Node) handleSelectMouse(e *MouseEvent) {
 		}
 		if i := n.itemAt(e.Y); i >= 0 {
 			if i == s.selected {
-				n.SelectCurrent()
+				n.selectCurrent()
 			} else {
 				s.pinned = true
-				n.SetSelectedIndex(i)
+				n.setSelectedIndex(i)
 			}
 			e.StopPropagation()
 		}
@@ -347,11 +347,11 @@ func (n *Node) handleSelectMouse(e *MouseEvent) {
 		switch e.Scroll.Direction {
 		case ScrollUp:
 			if s.position() > 0 || s.opts.WrapSelection {
-				n.MoveSelection(-1)
+				n.moveSelection(-1)
 			}
 		case ScrollDown:
 			if s.position() < len(s.visible)-1 || s.opts.WrapSelection {
-				n.MoveSelection(1)
+				n.moveSelection(1)
 			}
 		}
 		if s.selected != before {
