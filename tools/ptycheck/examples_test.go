@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestHello(t *testing.T) {
@@ -451,6 +452,33 @@ func TestTabs(t *testing.T) {
 	s.send("[")
 	s.waitText("Showing: Keys")
 	s.exitCleanly()
+}
+
+// The wine example fills the screen with half-block pixels from a ray
+// marcher, animates, pauses, and quits on Q.
+func TestWine(t *testing.T) {
+	s := start(t, buildExample(t, "wine"), 100, 30)
+	s.waitText("half-block pixels · 100×60")
+	s.waitFor("a screen of half blocks", func() bool {
+		count := 0
+		for _, line := range s.screen.Lines() {
+			count += strings.Count(line, "▀")
+		}
+		return count > 100*20
+	})
+	s.send(" ")
+	s.waitText("· paused")
+	s.send(" ")
+	s.waitFor("resumed", func() bool { _, _, ok := s.screen.Find("· paused"); return !ok })
+	s.send("q")
+	select {
+	case <-s.exited:
+		if s.waitErr != nil {
+			t.Fatalf("exit after Q: %v", s.waitErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("did not exit on Q")
+	}
 }
 
 // A Textarea wraps by default, as upstream, and re-wraps when the

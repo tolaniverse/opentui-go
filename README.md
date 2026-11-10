@@ -28,6 +28,7 @@ Each example focuses on one part of the library:
 | `go run ./examples/styled` | Rich text: bold, italic, underlined and colored spans, an OSC 8 hyperlink |
 | `go run ./examples/select` | A `Select` list with descriptions, keyboard/mouse/wheel navigation, and a filter field |
 | `go run ./examples/tabs` | A `TabSelect` bar with descriptions, overflow arrows, truncated names, and a panel that follows the selected tab |
+| `go run ./examples/wine` | An animated 3D scene, ray marched on the CPU and drawn as half-block pixels: glowing glasses filling with poured wine. Space pauses, ←/→ orbit |
 | `go run ./examples/tasks` | A usable local task list: add, edit, complete, filter, and persist across runs |
 
 Press Ctrl+C to quit; the terminal is restored.
