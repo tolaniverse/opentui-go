@@ -7,8 +7,8 @@ import "math"
 // PixelGrid.cpp), the layout engine upstream OpenTUI calls through Zig.
 //
 // Function names follow Yoga's so the two can be read side by side.
-// Like Yoga, all math is float32. Left-to-right only, single line
-// (no flex-wrap), no aspect ratio, baseline or auto margins.
+// Like Yoga, all math is float32. Left-to-right only; no aspect ratio,
+// baseline, auto margins or align-content distribution.
 // testdata/yoga_cases.json checks this file against real Yoga.
 
 // sizingMode says how a node should treat the size its parent offers.
@@ -527,6 +527,44 @@ func (n *Node) calculateFlexLine(mainOwnerSize, innerMain float32) flexLine {
 	return l
 }
 
+// calculateWrappedLines uses the bounded bases Yoga collects before it
+// distributes free space. A child too large for an empty line stays on it.
+func (n *Node) calculateWrappedLines(mainOwnerSize, innerMain float32) []flexLine {
+	main := n.Style.Direction
+	gap := float32(n.Style.Gap)
+	lines := []flexLine{{}}
+	for _, c := range n.children {
+		if c.Hidden || c.Style.Position == Absolute {
+			continue
+		}
+		l := &lines[len(lines)-1]
+		basis := c.boundAxisWithinMinAndMax(main, c.lay.computedBasis, mainOwnerSize) + c.marginForAxis(main)
+		if len(l.items) > 0 && defined(innerMain) && l.sizeConsumed+gap+basis > innerMain {
+			lines = append(lines, flexLine{})
+			l = &lines[len(lines)-1]
+		}
+		if len(l.items) > 0 {
+			l.sizeConsumed += gap
+		}
+		l.sizeConsumed += basis
+		if c.isFlexible() {
+			l.totalGrow += c.resolveFlexGrow()
+			l.totalShrink += -c.resolveFlexShrink() * c.lay.computedBasis
+		}
+		l.items = append(l.items, c)
+	}
+	for i := range lines {
+		l := &lines[i]
+		if l.totalGrow > 0 && l.totalGrow < 1 {
+			l.totalGrow = 1
+		}
+		if l.totalShrink > 0 && l.totalShrink < 1 {
+			l.totalShrink = 1
+		}
+	}
+	return lines
+}
+
 func (n *Node) distributeFreeSpaceFirstPass(l *flexLine, mainOwnerSize, innerMain float32) {
 	main := n.Style.Direction
 	var delta float32
@@ -561,7 +599,7 @@ func (n *Node) distributeFreeSpaceFirstPass(l *flexLine, mainOwnerSize, innerMai
 	l.remaining -= delta
 }
 
-func (n *Node) distributeFreeSpaceSecondPass(l *flexLine, mainOwnerSize, innerMain, innerCross, innerW, innerH float32, crossMode sizingMode, performLayout bool) float32 {
+func (n *Node) distributeFreeSpaceSecondPass(l *flexLine, mainOwnerSize, innerMain, innerCross, innerW, innerH float32, crossMode sizingMode, performLayout, mainOverflows bool) float32 {
 	main := n.Style.Direction
 	cross := crossOf(main)
 	mainRow := isRow(main)
@@ -600,7 +638,7 @@ func (n *Node) distributeFreeSpaceSecondPass(l *flexLine, mainOwnerSize, innerMa
 		crossDefinite := c.hasDefiniteLength(dimOf(cross), innerCross)
 		stretch := resolveChildAlignment(n, c) == AlignStretch
 		switch {
-		case defined(innerCross) && !crossDefinite && crossMode == stretchFit && stretch:
+		case defined(innerCross) && !crossDefinite && crossMode == stretchFit && stretch && !(n.Style.FlexWrap != FlexNoWrap && mainOverflows):
 			childCross, crossChildMode = innerCross, stretchFit
 		case !crossDefinite:
 			childCross, crossChildMode = innerCross, fitContent
@@ -629,10 +667,10 @@ func (n *Node) distributeFreeSpaceSecondPass(l *flexLine, mainOwnerSize, innerMa
 	return delta
 }
 
-func (n *Node) resolveFlexibleLength(l *flexLine, mainOwnerSize, innerMain, innerCross, innerW, innerH float32, crossMode sizingMode, performLayout bool) {
+func (n *Node) resolveFlexibleLength(l *flexLine, mainOwnerSize, innerMain, innerCross, innerW, innerH float32, crossMode sizingMode, performLayout, mainOverflows bool) {
 	original := l.remaining
 	n.distributeFreeSpaceFirstPass(l, mainOwnerSize, innerMain)
-	distributed := n.distributeFreeSpaceSecondPass(l, mainOwnerSize, innerMain, innerCross, innerW, innerH, crossMode, performLayout)
+	distributed := n.distributeFreeSpaceSecondPass(l, mainOwnerSize, innerMain, innerCross, innerW, innerH, crossMode, performLayout, mainOverflows)
 	l.remaining = original - distributed
 }
 
@@ -689,7 +727,7 @@ func (n *Node) justifyMainAxis(l *flexLine, mainMode, crossMode sizingMode, main
 		if i != len(l.items)-1 {
 			l.mainDim += between
 		}
-		if !performLayout && crossMode == stretchFit {
+		if !performLayout && crossMode == stretchFit && n.Style.FlexWrap == FlexNoWrap {
 			l.mainDim += c.marginForAxis(main) + c.lay.computedBasis
 			l.crossDim = innerCross
 		} else {
@@ -698,6 +736,122 @@ func (n *Node) justifyMainAxis(l *flexLine, mainMode, crossMode sizingMode, main
 		}
 	}
 	l.mainDim += trailPB
+}
+
+// layoutWrapped uses the same basis, flex resolution, and justification as
+// single-line layout, with independent free space and cross size per line.
+func (n *Node) layoutWrapped(availW, availH float32, wMode, hMode sizingMode, ownerW, ownerH float32, performLayout bool,
+	main, cross FlexDirection, mainOwnerSize, crossOwnerSize, innerMain, innerCross, innerW, innerH, pbMain, pbCross float32,
+	mainMode, crossMode sizingMode, mainOverflows bool) {
+	if mainOverflows && mainMode == fitContent {
+		mainMode = stretchFit
+	}
+	lines := n.calculateWrappedLines(mainOwnerSize, innerMain)
+	maxConsumed := float32(0)
+	for _, l := range lines {
+		maxConsumed = maxOrDefined(maxConsumed, l.sizeConsumed)
+	}
+	if mainMode != stretchFit {
+		minInner := n.resolvedMin(dimOf(main), mainOwnerSize) - pbMain
+		maxInner := n.resolvedMax(dimOf(main), mainOwnerSize) - pbMain
+		switch {
+		case defined(minInner) && maxConsumed < minInner:
+			innerMain = minInner
+		case defined(maxInner) && maxConsumed > maxInner:
+			innerMain = maxInner
+		default:
+			if n.resolveFlexGrow() == 0 {
+				innerMain = maxConsumed
+			}
+		}
+	}
+	var totalCross, maxMain float32
+	for i := range lines {
+		if i > 0 {
+			totalCross += float32(n.Style.Gap)
+		}
+		l := &lines[i]
+		if defined(innerMain) {
+			l.remaining = innerMain - l.sizeConsumed
+		} else if l.sizeConsumed < 0 {
+			l.remaining = -l.sizeConsumed
+		}
+		// Even when measuring a fixed cross size, wrapped lines need their
+		// individual children's cross sizes to determine line breaks.
+		n.resolveFlexibleLength(l, mainOwnerSize, innerMain, innerCross, innerW, innerH, crossMode, performLayout, mainOverflows)
+		n.justifyMainAxis(l, mainMode, crossMode, mainOwnerSize, innerMain, innerCross, performLayout)
+		maxMain = maxOrDefined(maxMain, l.mainDim)
+		totalCross += l.crossDim
+	}
+	containerCross := innerCross
+	if crossMode != stretchFit {
+		containerCross = n.boundAxis(cross, totalCross+pbCross, crossOwnerSize) - pbCross
+	}
+	if performLayout {
+		crossPos := n.flexStartPaddingAndBorder(cross)
+		crossStart := flexStartEdge(cross)
+		crossEnd := flexEndEdge(cross)
+		for i := range lines {
+			if i > 0 {
+				crossPos += float32(n.Style.Gap)
+			}
+			l := &lines[i]
+			for _, c := range l.items {
+				align := resolveChildAlignment(n, c)
+				if align == AlignStretch {
+					if !c.hasDefiniteLength(dimOf(cross), innerCross) {
+						childMain := c.lay.measured[dimOf(main)] + c.marginForAxis(main)
+						childCross := l.crossDim
+						mm, cm := stretchFit, stretchFit
+						c.constrainMaxSizeForMode(main, innerMain, &mm, &childMain)
+						c.constrainMaxSizeForMode(cross, innerCross, &cm, &childCross)
+						cw, ch := childCross, childMain
+						if isRow(main) {
+							cw, ch = childMain, childCross
+						}
+						c.calculate(cw, ch, stretchFit, stretchFit, innerW, innerH, true)
+					}
+				}
+				// Yoga's multiline alignment overwrites the first-pass
+				// cross position. FlexStart uses the relative inset, not
+				// the margin; Stretch retains the start margin.
+				switch align {
+				case AlignStart:
+					c.lay.pos[crossStart] = crossPos + c.relativePosition(cross, innerCross)
+				case AlignCenter:
+					c.lay.pos[crossStart] = crossPos + (l.crossDim-c.lay.measured[dimOf(cross)])/2
+				case AlignEnd:
+					c.lay.pos[crossStart] = crossPos + l.crossDim - c.margin(crossEnd) - c.lay.measured[dimOf(cross)]
+				default: // Stretch
+					c.lay.pos[crossStart] = crossPos + c.margin(crossStart)
+				}
+			}
+			crossPos += l.crossDim
+		}
+	}
+	marginRow, marginCol := n.marginForAxis(Row), n.marginForAxis(Column)
+	n.lay.measured[0] = n.boundAxis(Row, availW-marginRow, ownerW)
+	n.lay.measured[1] = n.boundAxis(Column, availH-marginCol, ownerH)
+	if mainMode != stretchFit {
+		n.lay.measured[dimOf(main)] = n.boundAxis(main, maxMain, mainOwnerSize)
+	}
+	if crossMode != stretchFit {
+		n.lay.measured[dimOf(cross)] = n.boundAxis(cross, containerCross+pbCross, crossOwnerSize)
+	}
+	if performLayout {
+		if needsTrailingPosition(main) {
+			for _, c := range n.children {
+				if !c.Hidden && c.Style.Position != Absolute {
+					setChildTrailingPosition(n, c, main)
+				}
+			}
+		}
+		wm := crossMode
+		if isRow(main) {
+			wm = mainMode
+		}
+		n.layoutAbsoluteDescendants(wm)
+	}
 }
 
 // calculateImpl is Yoga's calculateLayoutImpl: measure (performLayout =
@@ -738,7 +892,19 @@ func (n *Node) calculateImpl(availW, availH float32, wMode, hMode sizingMode, ow
 	}
 
 	// STEP 3: flex basis of every child.
-	n.computeFlexBasisForChildren(innerW, innerH, wMode, hMode, performLayout)
+	totalBasis := n.computeFlexBasisForChildren(innerW, innerH, wMode, hMode, performLayout)
+	if n.Style.FlexWrap == FlexWrapLines {
+		count := 0
+		for _, c := range n.children {
+			if !c.Hidden && c.Style.Position != Absolute {
+				count++
+			}
+		}
+		mainOverflows := mainMode != maxContent && totalBasis+float32(max(count-1, 0)*n.Style.Gap) > innerMain
+		n.layoutWrapped(availW, availH, wMode, hMode, ownerW, ownerH, performLayout,
+			main, cross, mainOwnerSize, crossOwnerSize, innerMain, innerCross, innerW, innerH, pbMain, pbCross, mainMode, crossMode, mainOverflows)
+		return
+	}
 
 	// STEP 4: collect the line (no wrapping: one line).
 	l := n.calculateFlexLine(mainOwnerSize, innerMain)
@@ -770,7 +936,7 @@ func (n *Node) calculateImpl(availW, availH float32, wMode, hMode sizingMode, ow
 
 	// STEP 6–7: grow/shrink, then place along the main axis.
 	if !canSkipFlex {
-		n.resolveFlexibleLength(&l, mainOwnerSize, innerMain, innerCross, innerW, innerH, crossMode, performLayout)
+		n.resolveFlexibleLength(&l, mainOwnerSize, innerMain, innerCross, innerW, innerH, crossMode, performLayout, false)
 	}
 	n.justifyMainAxis(&l, mainMode, crossMode, mainOwnerSize, innerMain, innerCross, performLayout)
 

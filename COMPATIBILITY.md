@@ -1,8 +1,8 @@
 # Upstream compatibility (v0.20.0)
 
-Unreleased `main` is migrating widget constructors to typed handles; see
-[MIGRATION.md](MIGRATION.md). This table otherwise describes the v0.20.0
-feature subset.
+Unreleased `main` has typed widget handles, text truncation, and basic flex
+wrap; see [MIGRATION.md](MIGRATION.md). This table otherwise describes the
+v0.20.0 feature subset.
 
 This is a **partial, idiomatic Go port**, not a drop-in replacement for
 OpenTUI's TypeScript or Zig APIs. The comparison is pinned to upstream commit

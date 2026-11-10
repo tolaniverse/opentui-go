@@ -67,6 +67,15 @@ const (
 	RowReverse
 )
 
+// FlexWrap controls whether children form additional flex lines when they
+// exceed the container's main-axis size.
+type FlexWrap uint8
+
+const (
+	FlexNoWrap    FlexWrap = iota // one line (the default)
+	FlexWrapLines                 // new lines advance along the cross axis
+)
+
 // Justify distributes leftover space along the main axis.
 type Justify uint8
 
@@ -117,6 +126,7 @@ const (
 // defaults: column, start, stretch, grow 0, shrink per FlexShrink docs.
 type Style struct {
 	Direction  FlexDirection
+	FlexWrap   FlexWrap
 	Justify    Justify
 	AlignItems Align
 	AlignSelf  Align

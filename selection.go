@@ -165,11 +165,21 @@ func (r *Renderer) updateTextSelections() {
 			if y == fy {
 				end = fx - base.X + 1
 			}
+			if n.text.opts.Truncate {
+				if parts, ok := truncateRow(row, base.W); ok {
+					start, end = parts.sourceColumn(start, width), parts.sourceColumn(end, width)
+				}
+			}
 			start, end = min(max(start, 0), width), min(max(end, 0), width)
 			if r.selection.Behavior == SelectLine {
 				start, end = 0, width
 			} else if r.selection.Behavior == SelectWord && ay == fy && y == ay {
 				point := r.selection.anchorRelX - n.Style.Padding.Left
+				if n.text.opts.Truncate {
+					if parts, ok := truncateRow(row, base.W); ok {
+						point = parts.sourceColumn(point, width)
+					}
+				}
 				start, end = wordColumns(line, point)
 			} else if r.selection.Behavior == SelectCell && ax == fx && ay == fy {
 				start, end = 0, 0

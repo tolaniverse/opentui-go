@@ -5,6 +5,11 @@ are available on [GitHub](https://github.com/tolaniverse/opentui-go/releases).
 
 ## Unreleased
 
+- Text: `TextOptions.Truncate` keeps whole-grapheme prefix and suffix around a
+  three-cell ellipsis, with selection mapped to the original source.
+- Layout: `Style.FlexWrap` supports forward row/column flex lines with gaps;
+  `FlexNoWrap` remains the zero value. Yoga oracle cases cover the supported
+  subset; wrap-reverse and align-content distribution remain unimplemented.
 - Breaking API: widget constructors return typed handles (`*TextNode`,
   `*InputNode`, `*TextareaNode`, `*SelectNode`, `*TabSelectNode`,
   `*ScrollBoxNode`). Widget-only methods moved off `*Node`.

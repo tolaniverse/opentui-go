@@ -8,7 +8,7 @@
 // context.zig): web defaults off; positions rounded from absolute edges.
 // npm Yoga has no switch for that rounding rule, so we turn its rounding
 // off (point scale 0) and round absolute edges here instead.
-import Yoga, { Align, Direction, Display, Edge, FlexDirection, Gutter, Justify, MeasureMode, PositionType } from "yoga-layout"
+import Yoga, { Align, Direction, Display, Edge, FlexDirection, Gutter, Justify, MeasureMode, PositionType, Wrap } from "yoga-layout"
 import { writeFileSync } from "node:fs"
 
 const config = Yoga.Config.create()
@@ -24,6 +24,7 @@ function build(spec) {
   const n = Yoga.Node.create(config)
   const s = spec.s ?? {}
   n.setFlexDirection(DIRS[s.dir ?? "column"])
+  if (s.wrap) n.setFlexWrap(s.wrap === "wrap" ? Wrap.Wrap : Wrap.NoWrap)
   n.setJustifyContent(JUST[s.justify ?? "start"])
   n.setAlignItems(ALIGN[s.alignItems ?? "stretch"])
   n.setAlignSelf(ALIGN[s.alignSelf ?? "auto"])
@@ -110,6 +111,17 @@ const hand = [
     ] },
     { s: { h: 1 } },
   ] } },
+  { name: "wrap row basic", width: 10, height: 5, root: { s: { dir: "row", wrap: "wrap" }, c: [4, 4, 4].map(w => ({ s: { w, h: 1 } })) } },
+  { name: "wrap row gap", width: 10, height: 8, root: { s: { dir: "row", wrap: "wrap", gap: 1 }, c: [4, 4, 4].map(w => ({ s: { w, h: 2 } })) } },
+  { name: "wrap column", width: 8, height: 5, root: { s: { wrap: "wrap" }, c: [2, 2, 2].map(h => ({ s: { w: 2, h } })) } },
+  { name: "wrap align center", width: 10, height: 8, root: { s: { dir: "row", wrap: "wrap", alignItems: "center" }, c: [{ s: { w: 6, h: 3 } }, { s: { w: 4, h: 1 } }, { s: { w: 6, h: 2 } }] } },
+  { name: "wrap stretch per line", width: 10, height: 8, root: { s: { dir: "row", wrap: "wrap" }, c: [{ s: { w: 6, h: 3 } }, { s: { w: 4 } }, { s: { w: 6, h: 2 } }, { s: { w: 4 } }] } },
+  { name: "wrap grow per line", width: 10, height: 8, root: { s: { dir: "row", wrap: "wrap" }, c: [{ s: { w: 6 } }, { s: { grow: 1, basis: 3 } }, { s: { w: 6 } }, { s: { grow: 1, basis: 3 } }] } },
+  { name: "wrap measured children", width: 8, height: 6, root: { s: { dir: "row", wrap: "wrap", alignItems: "start" }, c: [{ text: [5, 2] }, { text: [5, 1] }, { text: [2, 2] }] } },
+  { name: "wrap reverse row", width: 10, height: 6, root: { s: { dir: "row-reverse", wrap: "wrap", gap: 1 }, c: [4, 4, 4].map(w => ({ s: { w, h: 2 } })) } },
+  { name: "wrap absolute child", width: 10, height: 6, root: { s: { dir: "row", wrap: "wrap" }, c: [{ s: { w: 7, h: 2 } }, { s: { pos: "abs", top: 1, left: 1, w: 2, h: 2 } }, { s: { w: 7, h: 2 } }] } },
+  { name: "wrap row margins", width: 11, height: 9, root: { s: { dir: "row", wrap: "wrap" }, c: [{ s: { w: 4, h: 3, margin: [0, 1, 1, 0] } }, { s: { w: 7, h: 3, margin: [1, 1, 0, 0] } }, { s: { w: 6, h: 1 } }] } },
+  { name: "wrap nested and padded", width: 16, height: 10, root: { s: { dir: "row", wrap: "wrap", gap: 1, pad: [1, 1, 1, 1] }, c: [{ s: { w: 8, dir: "row", h: 3, pad: [0, 1, 0, 1] }, c: [{ text: [3, 1] }, { s: { grow: 1 } }] }, { s: { w: 7, h: 2 } }, { s: { w: 8, h: 3 }, c: [{ s: { grow: 1 } }] }] } },
 ]
 
 // Seeded random trees inside the supported subset.
@@ -178,8 +190,20 @@ function randRoot() {
 const random = Array.from({ length: 400 }, (_, i) => ({
   name: `random #${i}`, width: int(10, 90), height: int(4, 30), root: randRoot(),
 }))
+const wrapped = Array.from({ length: 40 }, (_, i) => {
+  const width = int(8, 30), height = int(4, 14)
+  const dir = pick(["row", "column", "row-reverse", "column-reverse"])
+  const root = {
+    s: { dir, wrap: "wrap", gap: int(0, 2), alignItems: pick(["start", "center", "end", "stretch"]) },
+    c: Array.from({ length: int(2, 6) }, () => ({ s: {
+      w: int(2, 9), h: int(1, 4),
+      margin: [int(0, 1), int(0, 1), int(0, 1), int(0, 1)],
+    } })),
+  }
+  return { name: `wrapped #${i}`, width, height, root }
+})
 
-const cases = [...hand, ...random].map((tc) => ({
+const cases = [...hand, ...random, ...wrapped].map((tc) => ({
   ...tc,
   // npm Yoga 3.2.1 overflows in this generated case. OpenTUI carries
   // yoga-flex-shrink-residue.patch (facebook/yoga#1974 and #2044), so the

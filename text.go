@@ -19,6 +19,9 @@ type TextOptions struct {
 	// Wrap soft-wraps lines to the node's width. The zero value,
 	// WrapDefault, does not wrap Text (upstream Text defaults to word).
 	Wrap WrapMode
+	// Truncate keeps both ends of an overflowing row around a three-cell
+	// "...". Rows in viewports three cells or narrower paint nothing.
+	Truncate bool
 }
 
 type textState struct {
@@ -163,7 +166,7 @@ func paintText(b *Buffer, n *Node) {
 	}
 	rows := n.text.visual(r.W)
 	for i, row := range rows {
-		n.text.drawRow(b, row, r.X, r.Y+i, 0, -1, nil)
+		n.text.paintRow(b, row, r, i, 0, -1, nil)
 	}
 	for _, selected := range n.text.selection {
 		if selected.line < 0 || selected.line >= len(rows) {
@@ -173,8 +176,85 @@ func paintText(b *Buffer, n *Node) {
 		from, to := cellsToRunes(row.text, selected.start, selected.end)
 		if from < to {
 			colors := [2]RGBA{o.SelectionFG, o.SelectionBG}
-			n.text.drawRow(b, row, r.X, r.Y+selected.line, from, to, &colors)
+			n.text.paintRow(b, row, r, selected.line, from, to, &colors)
 		}
+	}
+}
+
+type truncatedRow struct {
+	prefixRunes, suffixRunes int
+	prefixWidth, suffixStart int
+}
+
+// truncateRow finds two whole-grapheme windows at the visible width.
+// The source row stays intact for selection and TextContent.
+func truncateRow(row visualRow, width int) (truncatedRow, bool) {
+	if row.width <= width || width <= 0 {
+		return truncatedRow{}, false
+	}
+	var out truncatedRow
+	if width <= 3 {
+		return out, true
+	}
+	cs := clusters(row.text)
+	prefixBudget := (width - 3) / 2
+	suffixBudget := width - 3 - prefixBudget
+	for _, c := range cs {
+		if c.end > prefixBudget {
+			break
+		}
+		out.prefixRunes += utf8.RuneCountInString(c.text)
+		out.prefixWidth = c.end
+	}
+	out.suffixStart = row.width
+	out.suffixRunes = utf8.RuneCountInString(row.text)
+	for i := len(cs) - 1; i >= 0; i-- {
+		c := cs[i]
+		if row.width-c.start > suffixBudget {
+			break
+		}
+		out.suffixRunes -= utf8.RuneCountInString(c.text)
+		out.suffixStart = c.start
+	}
+	return out, true
+}
+
+// sourceColumn maps a painted column back to the original row. The dots
+// map to the prefix boundary; the suffix retains its original offsets.
+func (p truncatedRow) sourceColumn(col, width int) int {
+	switch {
+	case col <= p.prefixWidth:
+		return max(col, 0)
+	case col < p.prefixWidth+3:
+		return p.prefixWidth
+	default:
+		return min(width, p.suffixStart+col-p.prefixWidth-3)
+	}
+}
+
+func (t *textState) paintRow(b *Buffer, row visualRow, r Rect, index, from, to int, colors *[2]RGBA) {
+	parts, truncated := truncatedRow{}, false
+	if t.opts.Truncate {
+		parts, truncated = truncateRow(row, r.W)
+	}
+	if !truncated {
+		t.drawRow(b, row, r.X, r.Y+index, from, to, colors)
+		return
+	}
+	if r.W <= 3 {
+		return
+	}
+	if to < 0 {
+		to = utf8.RuneCountInString(row.text)
+	}
+	if from < parts.prefixRunes {
+		t.drawRow(b, row, r.X, r.Y+index, from, min(to, parts.prefixRunes), colors)
+	}
+	if colors == nil {
+		b.DrawText("...", r.X+parts.prefixWidth, r.Y+index, t.opts.FG, t.opts.BG, t.opts.Attr)
+	}
+	if to > parts.suffixRunes {
+		t.drawRow(b, row, r.X+parts.prefixWidth+3-parts.suffixStart, r.Y+index, max(from, parts.suffixRunes), to, colors)
 	}
 }
 

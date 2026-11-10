@@ -66,6 +66,9 @@ func buildOracle(spec oracleNode) *Node {
 		Bottom: oracleDim(s["bottom"]), Left: oracleDim(s["left"]),
 	}
 	st.Direction = map[any]FlexDirection{"row": Row, "column-reverse": ColumnReverse, "row-reverse": RowReverse}[s["dir"]]
+	if s["wrap"] == "wrap" {
+		st.FlexWrap = FlexWrapLines
+	}
 	st.Justify = map[any]Justify{"center": JustifyCenter, "end": JustifyEnd, "between": JustifySpaceBetween, "around": JustifySpaceAround, "evenly": JustifySpaceEvenly}[s["justify"]]
 	aligns := map[any]Align{"start": AlignStart, "center": AlignCenter, "end": AlignEnd, "stretch": AlignStretch}
 	st.AlignItems, st.AlignSelf = aligns[s["alignItems"]], aligns[s["alignSelf"]]
