@@ -125,9 +125,15 @@ func (s *selectState) position() int {
 	return -1
 }
 
-// SetSelectOptions replaces a Select's options, keeping the selected index
-// when it still exists, as upstream's options setter.
+// SetSelectOptions replaces a Select's or TabSelect's options, keeping the
+// selected index when it still exists, as upstream's options setter.
 func (n *Node) SetSelectOptions(options []SelectOption) {
+	if t := n.tabs; t != nil {
+		t.opts.Options = options
+		t.selected = min(t.selected, max(len(options)-1, 0))
+		t.pinned = false
+		return
+	}
 	s := n.list
 	if s == nil {
 		return
@@ -174,8 +180,12 @@ func (n *Node) VisibleOptions() int {
 	return len(n.list.visible)
 }
 
-// SelectedIndex is the index into the options of a Select's selection.
+// SelectedIndex is the index into the options of a Select's or
+// TabSelect's selection.
 func (n *Node) SelectedIndex() int {
+	if n.tabs != nil {
+		return n.tabs.selected
+	}
 	if n.list == nil {
 		return 0
 	}
@@ -185,6 +195,12 @@ func (n *Node) SelectedIndex() int {
 // SelectedOption returns the selected option; false when the list is
 // empty or the filter hides everything.
 func (n *Node) SelectedOption() (SelectOption, bool) {
+	if t := n.tabs; t != nil {
+		if t.selected >= len(t.opts.Options) {
+			return SelectOption{}, false
+		}
+		return t.opts.Options[t.selected], true
+	}
 	s := n.list
 	if s == nil || s.position() < 0 {
 		return SelectOption{}, false
@@ -192,8 +208,16 @@ func (n *Node) SelectedOption() (SelectOption, bool) {
 	return s.opts.Options[s.selected], true
 }
 
-// SetSelectedIndex selects option index if it exists and is visible.
+// SetSelectedIndex selects option index if it exists and is visible, and
+// fires OnChange, even when index is already selected, as upstream.
 func (n *Node) SetSelectedIndex(index int) {
+	if t := n.tabs; t != nil {
+		if index >= 0 && index < len(t.opts.Options) {
+			t.selected, t.pinned = index, false
+			n.notifyTabChange()
+		}
+		return
+	}
 	s := n.list
 	if s == nil {
 		return
@@ -208,9 +232,21 @@ func (n *Node) SetSelectedIndex(index int) {
 }
 
 // MoveSelection moves the selection by steps visible items (negative is
-// up), clamping or wrapping at the ends as upstream moveUp/moveDown, and
-// fires OnChange.
+// up or left), clamping or wrapping at the ends as upstream
+// moveUp/moveDown, and fires OnChange. A TabSelect moves one tab per step
+// and, as upstream moveLeft/moveRight, fires OnChange only for steps that
+// move.
 func (n *Node) MoveSelection(steps int) {
+	if n.tabs != nil {
+		step := 1
+		if steps < 0 {
+			step, steps = -1, -steps
+		}
+		for ; steps > 0; steps-- {
+			n.moveTab(step)
+		}
+		return
+	}
 	s := n.list
 	if s == nil || len(s.visible) == 0 {
 		return
@@ -231,8 +267,16 @@ func (n *Node) MoveSelection(steps int) {
 // SelectCurrent fires OnSelect for the selected option, if any.
 func (n *Node) SelectCurrent() bool {
 	opt, ok := n.SelectedOption()
-	if ok && n.list.opts.OnSelect != nil {
-		n.list.opts.OnSelect(n.list.selected, opt)
+	var onSelect func(int, SelectOption)
+	switch {
+	case !ok:
+	case n.tabs != nil:
+		onSelect = n.tabs.opts.OnSelect
+	case n.list != nil:
+		onSelect = n.list.opts.OnSelect
+	}
+	if onSelect != nil {
+		onSelect(n.SelectedIndex(), opt)
 	}
 	return ok
 }

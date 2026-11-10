@@ -424,6 +424,35 @@ func TestSelect(t *testing.T) {
 	s.exitCleanly()
 }
 
+func TestTabs(t *testing.T) {
+	// 70 columns hold four 16-cell tabs of six.
+	s := start(t, buildExample(t, "tabs"), 70, 16)
+	s.waitText("Overview")
+	s.waitText("What this example shows")
+	s.waitText("›")
+	s.send("\x1b[C") // Right
+	s.waitText("Showing: Keys")
+	s.waitText("Keyboard navigation")
+	s.send("]]]]") // to the last tab; the view scrolls to tabs 2..5
+	s.waitText("Showing: A very long tab name")
+	s.waitText("A very long t…")
+	s.waitText("‹")
+	s.send("\r")
+	s.waitText("Chosen: A very long tab name")
+
+	// Click selects; a click on the selected tab chooses it.
+	x, y := s.waitText("Mouse")
+	s.send(sgrMouse(0, x, y, true))
+	s.send(sgrMouse(0, x, y, false))
+	s.waitText("Showing: Mouse")
+	s.send(sgrMouse(0, x, y, true))
+	s.send(sgrMouse(0, x, y, false))
+	s.waitText("Chosen: Mouse")
+	s.send("[")
+	s.waitText("Showing: Keys")
+	s.exitCleanly()
+}
+
 // A Textarea wraps by default, as upstream, and re-wraps when the
 // terminal is resized. Regression: v0.8-v0.14 defaulted to WrapNone, so a
 // line filling the width scrolled sideways instead of wrapping.
