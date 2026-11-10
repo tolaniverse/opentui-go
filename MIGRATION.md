@@ -1,6 +1,6 @@
 # Migrating from v0.20.0 to typed widget handles
 
-The changes below are on **unreleased `main`**, not in the v0.20.0 tag.
+These changes shipped in **v0.21.0**.
 
 Widget constructors now return `*TextNode`, `*InputNode`, `*TextareaNode`,
 `*SelectNode`, `*TabSelectNode`, and `*ScrollBoxNode`. Each embeds `*Node`;

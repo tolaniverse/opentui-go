@@ -4,15 +4,15 @@ A pure-Go port of [OpenTUI](https://github.com/anomalyco/opentui), a library for
 
 Upstream OpenTUI pairs a Zig engine with a TypeScript API. This port reimplements both layers in Go, with no cgo and no Zig.
 
-> **Status: v0.20.0 released; the next version is in development.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line and multiline text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering with soft wrapping, diff rendering, resize handling, and clean shutdown.
+> **Status: v0.22.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line and multiline text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering with soft wrapping, diff rendering, resize handling, and clean shutdown.
 > macOS, Linux, and Windows. BSD builds; it is not in CI. Requires Go 1.25 or later; CI tests the oldest supported Go and the latest release.
 
 Ported from upstream commit [`e4ad586`](https://github.com/anomalyco/opentui/tree/e4ad5867eae1051a2c1877b08d88bbcaf12b7209).
 See [compatibility and missing features](COMPATIBILITY.md) before treating it as an upstream replacement.
 See [the changelog and API stability policy](CHANGELOG.md) and [security reporting](SECURITY.md).
 
-On unreleased `main`, widget constructors return typed handles and widget-only
-methods no longer live on `*Node`. Existing v0.20.0 callers need to migrate;
+Since v0.21.0, widget constructors return typed handles and widget-only
+methods no longer live on `*Node`. Callers of v0.20.0 or earlier need to migrate;
 see [the migration guide](MIGRATION.md). Do not rely on v0.x source compatibility.
 
 ## Try it
@@ -79,7 +79,7 @@ err = r.Run(context.Background(), nil)
 - `Styled(opts, spans...)` and `TextNode.SetSpans` show rich text, the counterpart of upstream's styled-text chunks: each `Span` has its own FG, BG, attributes and optional hyperlink, and spans may contain newlines. Build spans with `S("text").Bold().Fg(c)` or `Link(url, text)`. Styles survive wrapping and selection; a span boundary inside a grapheme cluster gives the cluster the first span's style. `SetText` returns to a single style.
 - Hyperlinks use OSC 8 and are sent only to terminals known to support them, as upstream: kitty, Ghostty, WezTerm, Alacritty, foot, iTerm2, VS Code, Zed, mintty, VTE ≥ 0.52.2, and WSL in Windows Terminal; never inside tmux/screen/zellij. `FORCE_HYPERLINK` or `Options.Hyperlinks` overrides. Link URLs have control bytes removed.
 - `TextOptions.Wrap` and `TextareaOptions.Wrap` soft-wrap lines: `WrapWord` breaks at Unicode line-break opportunities (falling back to character breaks for over-long words), `WrapChar` between any grapheme clusters. Wrapped `Text` grows taller in layout and reflows on resize; trailing spaces hang past the edge. Selecting across a soft wrap adds no newline. A wrapping `Textarea` keeps its last column for the cursor, and Up/Down move by visual row. The zero value, `WrapDefault`, wraps `Textarea` by word, as upstream's editor does, and leaves `Text` unwrapped (upstream `Text` wraps by word); pass `WrapNone` for an editor that scrolls long lines sideways.
-- On unreleased `main`, `TextOptions.Truncate` keeps the start and end of each overflowing row around `...` (or leaves an overflowing row blank when the viewport is at most three cells wide). Truncation preserves the original text and styled spans. `Style{Direction: Row, FlexWrap: FlexWrapLines, Gap: 1}` wraps children onto additional flex lines; the same field works for columns. `FlexNoWrap` remains the zero-value default. `WrapReverse` and `AlignContent` are not implemented.
+- `TextOptions.Truncate` keeps the start and end of each overflowing row around `...` (or leaves an overflowing row blank when the viewport is at most three cells wide). Truncation preserves the original text and styled spans. `Style{Direction: Row, FlexWrap: FlexWrapLines, Gap: 1}` wraps children onto additional flex lines; the same field works for columns. `FlexNoWrap` remains the zero-value default. `WrapReverse` and `AlignContent` are not implemented.
 
 ## Testing
 
@@ -118,12 +118,14 @@ scripts/release-check.sh [ref]              # everything, on a clean checkout of
 | **v0.18.0** | Dogfooding: persistent local tasks app, end-to-end add/edit/filter/complete/restart workflow on Unix and Windows |
 | **v0.19.0** | `TabSelect` horizontal tab bar with ellipsis truncation, overflow arrows, mouse and wheel |
 | **v0.20.0** | Go 1.25 minimum (was 1.26.2); CI on oldest and latest Go; staticcheck and govulncheck in CI |
+| **v0.21.0** | Typed widget handles (breaking; see `MIGRATION.md`); package docs and runnable examples |
+| **v0.22.0** | `Text` truncation with ellipsis; forward flex wrap (`Style.FlexWrap`) |
 
 ## Layout
 
-`Style` supports row/column directions (including reverse), grow and shrink, basis, fixed and percentage dimensions, min/max constraints, gap, padding, margins, justify/align, and absolute positioning. Layout is a pure-Go port of the supported Yoga 3.2.1 algorithm and is checked against 410 generated real-Yoga cases. It also carries OpenTUI's flex-shrink residue fix.
+`Style` supports row/column directions (including reverse), grow and shrink, basis, fixed and percentage dimensions, min/max constraints, gap, padding, margins, justify/align, and absolute positioning. Layout is a pure-Go port of the supported Yoga 3.2.1 algorithm and is checked against 461 generated real-Yoga cases, including forward flex wrap. It also carries OpenTUI's flex-shrink residue fix.
 
-## Known limitations (v0.20.0)
+## Known limitations (v0.22.0)
 
 - `Input` is still single-line and its public cursor offsets are rune indices; editing itself uses grapheme boundaries. Terminal width calculations use `uniseg` defaults and may differ from a particular terminal's emoji width settings.
 - Color mode is detected from `TERM`, `COLORTERM`, `WT_SESSION`, and `NO_COLOR`. It does not query the terminal. Unknown terminals still get truecolor, as upstream does. `Options.Color` can force a mode.

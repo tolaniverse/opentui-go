@@ -3,13 +3,16 @@
 This file records user-visible changes. Tagged releases and their full notes
 are available on [GitHub](https://github.com/tolaniverse/opentui-go/releases).
 
-## Unreleased
+## v0.22.0 — 2026-11-10
 
 - Text: `TextOptions.Truncate` keeps whole-grapheme prefix and suffix around a
   three-cell ellipsis, with selection mapped to the original source.
 - Layout: `Style.FlexWrap` supports forward row/column flex lines with gaps;
   `FlexNoWrap` remains the zero value. Yoga oracle cases cover the supported
   subset; wrap-reverse and align-content distribution remain unimplemented.
+
+## v0.21.0 — 2026-11-10
+
 - Breaking API: widget constructors return typed handles (`*TextNode`,
   `*InputNode`, `*TextareaNode`, `*SelectNode`, `*TabSelectNode`,
   `*ScrollBoxNode`). Widget-only methods moved off `*Node`.
