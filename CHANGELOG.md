@@ -3,6 +3,14 @@
 This file records user-visible changes. Tagged releases and their full notes
 are available on [GitHub](https://github.com/tolaniverse/opentui-go/releases).
 
+## Unreleased
+
+- Canvas: `Canvas(CanvasOptions{Paint})` is a laid-out leaf the application
+  paints itself, clipped to its rect and to clipping ancestors, with z-order
+  like other nodes. `SetPaint` swaps the paint function.
+- Images: `Buffer.DrawImage(area, img)` draws any `image.Image` as half-block
+  pixels (two per cell); transparent pixels keep the existing background.
+
 ## v0.22.0 — 2026-11-10
 
 - Text: `TextOptions.Truncate` keeps whole-grapheme prefix and suffix around a
