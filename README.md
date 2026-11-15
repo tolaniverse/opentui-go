@@ -4,7 +4,7 @@ A pure-Go port of [OpenTUI](https://github.com/anomalyco/opentui), a library for
 
 Upstream OpenTUI pairs a Zig engine with a TypeScript API. This port reimplements both layers in Go, with no cgo and no Zig.
 
-> **Status: v0.22.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line and multiline text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering with soft wrapping, diff rendering, resize handling, and clean shutdown.
+> **Status: v0.23.0, early.** It includes mouse routing, scrolling, text selection, clipboard copy, keyboard decoding, focus management, grapheme-aware single-line and multiline text input, renderable trees, Yoga-compatible flex layout, Unicode-aware text rendering with soft wrapping, diff rendering, resize handling, a `Canvas` node for custom drawing, half-block image drawing, and clean shutdown.
 > macOS, Linux, and Windows. BSD builds; it is not in CI. Requires Go 1.25 or later; CI tests the oldest supported Go and the latest release.
 
 Ported from upstream commit [`e4ad586`](https://github.com/anomalyco/opentui/tree/e4ad5867eae1051a2c1877b08d88bbcaf12b7209).
@@ -121,16 +121,17 @@ scripts/release-check.sh [ref]              # everything, on a clean checkout of
 | **v0.20.0** | Go 1.25 minimum (was 1.26.2); CI on oldest and latest Go; staticcheck and govulncheck in CI |
 | **v0.21.0** | Typed widget handles (breaking; see `MIGRATION.md`); package docs and runnable examples |
 | **v0.22.0** | `Text` truncation with ellipsis; forward flex wrap (`Style.FlexWrap`) |
+| **v0.23.0** | `Canvas` node for custom drawing; `Buffer.DrawImage` half-block images |
 
 ## Layout
 
 `Style` supports row/column directions (including reverse), grow and shrink, basis, fixed and percentage dimensions, min/max constraints, gap, padding, margins, justify/align, and absolute positioning. Layout is a pure-Go port of the supported Yoga 3.2.1 algorithm and is checked against 461 generated real-Yoga cases, including forward flex wrap. It also carries OpenTUI's flex-shrink residue fix.
 
-## Known limitations (v0.22.0)
+## Known limitations (v0.23.0)
 
 - `Input` is still single-line and its public cursor offsets are rune indices; editing itself uses grapheme boundaries. Terminal width calculations use `uniseg` defaults and may differ from a particular terminal's emoji width settings.
 - Color mode is detected from `TERM`, `COLORTERM`, `WT_SESSION`, and `NO_COLOR`. It does not query the terminal. Unknown terminals still get truecolor, as upstream does. `Options.Color` can force a mode.
-- No images or terminal cursor control. `Textarea` and `Input` contents are plain text (no spans).
+- Images are half-block pixels (`Buffer.DrawImage`), not kitty, sixel, or iTerm protocols. No terminal cursor control. `Textarea` and `Input` contents are plain text (no spans).
 - Clipboard copy is write-only OSC 52; there is no clipboard read and no tmux/screen passthrough wrapping yet.
 - `Textarea` has no triple-click line selection; holding a drag still past the edge does not keep scrolling (each pointer move scrolls one row). Without wrapping, all lines share one horizontal scroll offset. Ctrl+A/E and Home/End act on logical lines and the buffer, not visual rows.
 - Windows resize is noticed by polling, about every 100 ms. Windows CI runs three ConPTY smoke tests, not the full Unix PTY suite; exact escape sequences are not checked there because ConPTY re-encodes them.
